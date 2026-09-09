@@ -1,0 +1,140 @@
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QTimer, Qt
+from PySide6.QtGui import QIntValidator
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QProgressBar, QPushButton, QSlider, QVBoxLayout, QWidget
+
+from animation_utils import PropertyAnimation as QPropertyAnimation, VariantAnimation as QVariantAnimation, SequentialAnimationGroup as QSequentialAnimationGroup
+
+MODULE_INFO = {"name": "专注计时", "icon": "◉"}
+
+
+def create_widget(window):
+    page = QWidget()
+    layout = QVBoxLayout(page)
+    layout.setContentsMargins(36, 28, 36, 28)
+    layout.setSpacing(14)
+    layout.addWidget(_heading("专注计时", "给重要的事情留出一段安静时间"))
+
+    panel = QFrame()
+    panel.setObjectName("contentPanel")
+    panel_layout = QVBoxLayout(panel)
+    panel_layout.setContentsMargins(28, 30, 28, 30)
+    panel_layout.setSpacing(20)
+    time_label = QLabel("25:00")
+    time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    time_label.setObjectName("timerDisplay")
+    progress = QProgressBar()
+    progress.setObjectName("focusProgress")
+    progress.setRange(0, 1500 * 1000)
+    progress.setValue(0)
+    progress.setTextVisible(False)
+    progress.setFixedHeight(8)
+    minutes_input = QLineEdit("25")
+    minutes_input.setValidator(QIntValidator(1, 180, minutes_input))
+    minutes_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    minutes_input.setFixedWidth(70)
+    minutes_label = QLabel("分钟")
+    minutes_label.setObjectName("muted")
+    duration_slider = QSlider(Qt.Orientation.Horizontal)
+    duration_slider.setRange(1, 180)
+    duration_slider.setValue(25)
+    duration_slider.setMinimumWidth(180)
+    start = QPushButton("开始专注")
+    reset = QPushButton("重置")
+    row = QHBoxLayout()
+    row.addStretch(); row.addWidget(minutes_input); row.addWidget(minutes_label); row.addWidget(duration_slider); row.addStretch()
+    panel_layout.addWidget(time_label)
+    panel_layout.addWidget(progress)
+    panel_layout.addLayout(row)
+    panel_layout.addWidget(start)
+    panel_layout.addWidget(reset)
+    layout.addWidget(panel, 1)
+
+    timer = QTimer(page)
+    seconds = [1500]
+    total_seconds = [1500]
+    started = [False]
+    progress_animation = QPropertyAnimation(progress, b"value", page)
+    progress_animation.setDuration(700)
+    progress_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def selected_minutes():
+        try:
+            value = max(1, min(180, int(minutes_input.text())))
+        except ValueError:
+            value = duration_slider.value()
+        minutes_input.setText(str(value))
+        duration_slider.setValue(value)
+        return value
+
+    def sync_input(value):
+        minutes_input.blockSignals(True)
+        minutes_input.setText(str(value))
+        minutes_input.blockSignals(False)
+
+    duration_slider.valueChanged.connect(sync_input)
+    minutes_input.editingFinished.connect(selected_minutes)
+
+    def update_display(animated=True):
+        time_label.setText(f"{seconds[0] // 60:02d}:{seconds[0] % 60:02d}")
+        elapsed = (total_seconds[0] - seconds[0]) * 1000
+        if animated:
+            progress_animation.stop()
+            progress_animation.setStartValue(progress.value())
+            progress_animation.setEndValue(elapsed)
+            progress_animation.start()
+        else:
+            progress.setValue(elapsed)
+
+    def tick():
+        seconds[0] = max(0, seconds[0] - 1)
+        update_display()
+        if seconds[0] == 0:
+            timer.stop()
+            start.setText("开始专注")
+
+    def begin():
+        if not started[0] or seconds[0] <= 0:
+            seconds[0] = selected_minutes() * 60
+            total_seconds[0] = seconds[0]
+            started[0] = True
+        progress.setRange(0, total_seconds[0] * 1000)
+        update_display(animated=False)
+        timer.start(1000)
+        start.setText("暂停专注")
+
+    def toggle():
+        if timer.isActive():
+            timer.stop()
+            progress_animation.stop()
+            start.setText("继续专注")
+        else:
+            begin()
+
+    def clear():
+        timer.stop()
+        progress_animation.stop()
+        seconds[0] = selected_minutes() * 60
+        total_seconds[0] = seconds[0]
+        started[0] = False
+        progress.setRange(0, total_seconds[0] * 1000)
+        update_display(animated=False)
+        start.setText("开始专注")
+
+    timer.timeout.connect(tick)
+    start.clicked.connect(toggle)
+    reset.clicked.connect(clear)
+    return page
+
+
+def _heading(title, subtitle):
+    widget = QWidget()
+    layout = QVBoxLayout(widget)
+    layout.setContentsMargins(0, 0, 0, 4)
+    layout.setSpacing(4)
+    title_label = QLabel(title)
+    title_label.setObjectName("pageTitle")
+    subtitle_label = QLabel(subtitle)
+    subtitle_label.setObjectName("muted")
+    layout.addWidget(title_label)
+    layout.addWidget(subtitle_label)
+    return widget
