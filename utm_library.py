@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QAbstractItemView, QStyledItemDelegate,
     QCalendarWidget, QFrame, QCheckBox, QScrollArea, QLineEdit,
 )
-from ui_widgets import StyledComboBox
+from ui_widgets import StyledComboBox, clip_to_rounded_frame
 from utils import PropertyAnimation, VariantAnimation
 from utils import write_json
 
@@ -539,11 +539,20 @@ class ReservationMatrix(QTableWidget):
         self.setItemDelegate(MatrixDelegate(self))
         self.setMinimumHeight(330)
         self.setAccessibleName('图书馆房间与时间预约矩阵')
+        self.horizontalHeader().setObjectName('matrixColumns')
+        self.verticalHeader().setObjectName('matrixRows')
         self.setStyleSheet('''
             QTableWidget {background:white; border:1px solid #ece4f8; border-radius:12px;}
             QHeaderView::section {background:#faf8fe; color:#8b7bb5; border:0; padding:6px; font-weight:600;}
-            QTableCornerButton::section {background:#faf8fe; border:0;}
+            /* 外角跟着表格圆角：左上=角按钮，右上=最后一列表头，左下=最后一行表头。 */
+            QTableCornerButton::section {background:#faf8fe; border:0; border-top-left-radius:12px;}
+            #matrixColumns::section:last {border-top-right-radius:12px;}
+            #matrixRows::section:last {border-bottom-left-radius:12px;}
         ''')
+        clip_to_rounded_frame(self, 11)
+        # 表头不是视口的子控件，各自裁掉外侧的直角。
+        clip_to_rounded_frame(self.horizontalHeader(), 11, corners="tr")
+        clip_to_rounded_frame(self.verticalHeader(), 11, corners="bl")
         self.hovered = (-1, -1)
         self.hover_progress = 1.0
         self.reveal = 1.0
@@ -731,8 +740,9 @@ class ReservationSchedule(QWidget):
             #librarySchedule QFrame#bookingSidebar {background:#ffffff;border:1px solid #ece4f8;border-radius:18px;}
             #librarySchedule QLabel#matrixTitle {font-size:18px;font-weight:600;color:#4f4080;}
             #librarySchedule QCalendarWidget {background:white;}
-            #librarySchedule QCalendarWidget QToolButton {color:#7962aa;background:transparent;border:0;padding:3px;}
-            #librarySchedule QCalendarWidget QWidget#qt_calendar_navigationbar {background:#f4effc;}
+            #librarySchedule QCalendarWidget QToolButton {color:#7962aa;background:transparent;border:0;border-radius:6px;padding:3px;}
+            #librarySchedule QCalendarWidget QToolButton:hover {background:#e7dcf8;}
+            #librarySchedule QCalendarWidget QWidget#qt_calendar_navigationbar {background:#f4effc;border-radius:8px;}
             #librarySchedule QCalendarWidget QAbstractItemView {background:white;selection-background-color:#9b87ca;selection-color:white;outline:0;font-size:11px;}
         ''')
         layout = QHBoxLayout(self); layout.setContentsMargins(0,0,0,0); layout.setSpacing(16)

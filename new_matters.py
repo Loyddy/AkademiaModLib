@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit,
                                QListWidget, QPushButton, QVBoxLayout, QWidget)
-from ui_widgets import DateDropdown, StyledComboBox
+from ui_widgets import DateDropdown, StyledComboBox, clip_to_rounded_frame
 
 MODULE_INFO = {"name": "新增事宜", "icon": "+"}
 TASKS_FILE = Path(__file__).resolve().parents[1] / "config" / "tasks.json"
@@ -67,6 +67,8 @@ def create_widget_steps(window):
     list_title = QLabel("已添加事宜"); list_title.setObjectName("sectionTitle")
     tasks_list = QListWidget()
     tasks_list.setAlternatingRowColors(False)
+    # 列表行会盖住外框圆角，把视口裁成同样的圆角。
+    clip_to_rounded_frame(tasks_list, 11)
     empty_hint = QLabel("还没有事宜，填写上面的表单即可添加")
     empty_hint.setObjectName("muted")
     empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)

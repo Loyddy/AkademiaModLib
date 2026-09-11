@@ -15,7 +15,7 @@ from PySide6.QtWidgets import ( QFileDialog, QGridLayout, QHBoxLayout,
     QApplication, QFrame, QHeaderView, QLabel, QLineEdit, QMessageBox,
     QStyledItemDelegate, QPushButton, QTableWidget, QTableWidgetItem, QGraphicsEffect,
     QVBoxLayout, QWidget, QScrollArea)
-from ui_widgets import StyledComboBox, DateDropdown, TimeDropdown
+from ui_widgets import StyledComboBox, DateDropdown, TimeDropdown, clip_to_rounded_frame
 
 from utils import PropertyAnimation as QPropertyAnimation, VariantAnimation as QVariantAnimation
 
@@ -98,8 +98,23 @@ class CourseCellDelegate(QStyledItemDelegate):
 class CurrentDayHeader(QHeaderView):
     """Keep today's original colors and dim the other weekday columns."""
 
+    def _band_path(self):
+        # 表头横条的上沿要跟表格圆角对齐：上圆下方。
+        rect = QRectF(self.rect())
+        radius = min(14.0, rect.width() / 2, rect.height() / 2)
+        path = QPainterPath()
+        path.moveTo(rect.left(), rect.bottom())
+        path.lineTo(rect.left(), rect.top() + radius)
+        path.quadTo(rect.left(), rect.top(), rect.left() + radius, rect.top())
+        path.lineTo(rect.right() - radius, rect.top())
+        path.quadTo(rect.right(), rect.top(), rect.right(), rect.top() + radius)
+        path.lineTo(rect.right(), rect.bottom())
+        path.closeSubpath()
+        return path
+
     def paintSection(self, painter, rect, logical_index):
         painter.save()
+        painter.setClipPath(self._band_path(), Qt.ClipOperation.IntersectClip)
         today = logical_index == datetime.now().isoweekday()
         painter.fillRect(rect, QColor("#f1e9fb" if today else "#faf8fe"))
         painter.setPen(QColor("#6a4f9e" if today else "#8b7bb5"))
@@ -804,7 +819,8 @@ def create_widget_steps(window):
         #termPanel, #courseFormPanel, #scheduleFooter { background: #ffffff; border: 1px solid #ece4f8; border-radius: 18px; }
         #courseFormPanel #fieldBox, #courseFormPanel QLabel { background: transparent; }
         #courseTable { background: #ffffff; border: 1px solid #ece4f8; border-radius: 14px; gridline-color: #f4f0fb; }
-        #courseTable QHeaderView::section { background: #faf8fe; color: #8b7bb5; padding: 8px; border: none; font-weight: 700; }
+                /* 表头横条由 CurrentDayHeader 自绘并按圆角裁剪，样式表只留文字样式。 */
+                #courseTable QHeaderView::section { background: transparent; color: #8b7bb5; padding: 8px; border: none; font-weight: 700; }
         #courseTable QTableCornerButton::section { background: #faf8fe; border: none; }
     """)
     layout = QVBoxLayout(page); layout.setContentsMargins(36, 28, 36, 28); layout.setSpacing(14)
@@ -935,6 +951,8 @@ def create_widget_steps(window):
     table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
     table.horizontalHeader().setFixedHeight(52)
     table.setObjectName("courseTable")
+    # 单元格内容会盖住表格外框的圆角，把视口裁成同样的圆角。
+    clip_to_rounded_frame(table, 13)
     table.setMinimumHeight(360); table.setAlternatingRowColors(False); courses = _load_courses(); grid_start = 8 * 60
     saved_term = _load_selected_term()
     term.setCurrentText(saved_term if saved_term in ("Fall", "Winter", "Summer")
