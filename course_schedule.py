@@ -797,35 +797,17 @@ def create_widget_steps(window):
     """Build GUI controls in short batches without blocking loading animation."""
     page = QWidget(getattr(window, "_module_build_parent", None)); page.setObjectName("courseSchedulePage")
     page.setStyleSheet("""
-        #courseSchedulePage { background: #f6f4fa; }
+        #courseSchedulePage { background: transparent; }
         #courseSchedulePage QLabel { background: transparent; }
-        #courseSchedulePage #pageTitle { color: #352944; font-size: 26px; font-weight: 700; }
-        #courseSchedulePage #muted { color: #92869f; font-size: 12px; }
-        #courseSchedulePage QPushButton { background: #ffffff; color: #70617f; border: 1px solid #e5ddec; border-radius: 10px; padding: 9px 16px; font-weight: 600; }
-        #courseSchedulePage QPushButton:hover { background: #f0eaf8; border-color: #c6b5df; }
-        #courseSchedulePage QPushButton:disabled { color: #b4aabb; background: #f7f5fa; border-color: #eee8f2; }
-        #courseSchedulePage #toggleCourseForm, #courseSchedulePage #addCourse { background: #7962aa; color: white; border-color: #7962aa; }
-        #courseSchedulePage #toggleCourseForm:hover, #courseSchedulePage #addCourse:hover { background: #695296; }
-        #courseSchedulePage #deleteCourse:enabled { color: #a85c6d; background: #fff5f7; border-color: #efd9df; }
-        #courseSchedulePage #courseDetailsActions QPushButton { padding: 6px 12px; font-size: 12px; border-radius: 8px; }
-        #courseSchedulePage #courseDetailsDelete:enabled { color: #a85c6d; background: #fff5f7; border-color: #efd9df; }
-        #scheduleFooter { background: #ffffff; border: 1px solid #e8e1ef; border-radius: 12px; }
-        #termPanel, #courseFormPanel { background: #ffffff; border: 1px solid #e8e1ef; border-radius: 16px; }
-        #courseFormPanel { background: #ffffff; }
+        /* 学期栏、表单和底部操作条与 #contentPanel 共用同一套面板样式；
+           按钮、输入框、标题等通用外观由全局 theme.py 统一提供。 */
+        #termPanel, #courseFormPanel, #scheduleFooter { background: rgba(255,255,255,0.82); border: 1px solid #e0d7f7; border-radius: 24px; }
         #courseFormPanel #fieldBox, #courseFormPanel QLabel { background: transparent; }
-        #courseFormPanel QLineEdit, #courseFormPanel QDateEdit,
-        #courseFormPanel QTimeEdit { background: #ffffff; }
-        #toolbarLabel, #formLabel { color: #7962aa; font-size: 11px; font-weight: 600; }
-        #formHint { color: #7a708c; font-size: 11px; }
-        #scheduleSummary { color: #7a708c; font-size: 12px; }
-        #selectionSummary { color: #8b7d9b; font-size: 11px; }
-        #toggleCourseForm:checked, #addCourse { background: #7962aa; color: white; border-color: #7962aa; }
-        #courseTable { background: #ffffff; border: 1px solid #e5ddec; border-radius: 12px; gridline-color: #eee8f5; }
+        #courseTable { background: rgba(255,255,255,0.82); border: 1px solid #e0d7f7; border-radius: 12px; gridline-color: #eee8f7; }
         #courseTable QHeaderView::section { background: transparent; color: #7962aa; padding: 8px; border: none; font-weight: 700; }
         #courseTable QTableCornerButton::section { background: transparent; border: none; }
-        #courseTable QScrollBar::handle:vertical, #courseTable QScrollBar::handle:horizontal { background: #c8b9e5; border-radius: 4px; }
     """)
-    layout = QVBoxLayout(page); layout.setContentsMargins(28, 24, 28, 24); layout.setSpacing(12)
+    layout = QVBoxLayout(page); layout.setContentsMargins(36, 28, 36, 28); layout.setSpacing(14)
 
     code = QLineEdit(); code.setPlaceholderText("例如：MAT102H5")
     course_type = QLineEdit(); course_type.setPlaceholderText("例如：LEC、TUT、PRA")
@@ -842,11 +824,11 @@ def create_widget_steps(window):
     location = QLineEdit(); location.setPlaceholderText("教室（可选）")
     add = QPushButton("添加课程"); import_button = QPushButton("导入 .ics")
     delete = QPushButton("删除选中课程"); delete.setEnabled(False)
-    delete.setObjectName("deleteCourse")
+    delete.setObjectName("dangerButton")
     toggle_form = QPushButton("＋ 新增课程")
     toggle_form.setObjectName("toggleCourseForm")
     toggle_form.setCheckable(True)
-    add.setObjectName("addCourse")
+    add.setObjectName("primaryButton")
     summary = QLabel(); summary.setObjectName("scheduleSummary")
     summary.setWordWrap(True)
     selection = QLabel("单击课程展开详情与操作按钮；拖动课程移动，拖动上下条调整时长（30 分钟吸附）")
@@ -893,7 +875,7 @@ def create_widget_steps(window):
     details_copy = QPushButton("复制课程代码")
     details_copy.setCursor(Qt.CursorShape.PointingHandCursor)
     details_delete = QPushButton("删除课程")
-    details_delete.setObjectName("courseDetailsDelete")
+    details_delete.setObjectName("dangerButton")
     details_delete.setCursor(Qt.CursorShape.PointingHandCursor)
     details_actions_layout.addWidget(details_copy)
     details_actions_layout.addStretch(1)
@@ -1433,8 +1415,8 @@ def _unescape_ics(value):
 
 
 def _heading(title, sub):
-    from PySide6.QtWidgets import QLabel
-    widget = QWidget(); layout = QVBoxLayout(widget); layout.setContentsMargins(0, 0, 0, 16)
+    widget = QWidget(); layout = QVBoxLayout(widget); layout.setContentsMargins(0, 0, 0, 4)
+    layout.setSpacing(4)
     heading = QLabel(title); heading.setObjectName("pageTitle")
     subtitle = QLabel(sub); subtitle.setObjectName("muted"); layout.addWidget(heading); layout.addWidget(subtitle)
     return widget

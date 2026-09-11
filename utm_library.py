@@ -539,13 +539,9 @@ class ReservationMatrix(QTableWidget):
         self.setMinimumHeight(330)
         self.setAccessibleName('图书馆房间与时间预约矩阵')
         self.setStyleSheet('''
-            QTableWidget {background:white; border:1px solid #e6dfee; border-radius:10px;}
-            QHeaderView::section {background:#f5f1fa; color:#7962aa; border:0; padding:6px; font-weight:600;}
-            QTableCornerButton::section {background:#f5f1fa; border:0;}
-            QScrollBar:vertical {background:#f8f6fb;width:8px;border:0;}
-            QScrollBar:horizontal {background:#f8f6fb;height:8px;border:0;}
-            QScrollBar::handle {background:#cdbfe0;border-radius:4px;min-width:28px;min-height:28px;}
-            QScrollBar::add-line, QScrollBar::sub-line {width:0;height:0;}
+            QTableWidget {background:white; border:1px solid #e0d7f7; border-radius:12px;}
+            QHeaderView::section {background:#f3eff8; color:#7962aa; border:0; padding:6px; font-weight:600;}
+            QTableCornerButton::section {background:#f3eff8; border:0;}
         ''')
         self.hovered = (-1, -1)
         self.hover_progress = 1.0
@@ -730,18 +726,18 @@ class ReservationSchedule(QWidget):
         self.pending_slot = None
         self.setObjectName('librarySchedule')
         self.setStyleSheet('''
-            #librarySchedule QLabel {color:#796a8c;}
-            #librarySchedule QFrame#bookingSidebar {background:#f5f1fa;border-radius:12px;}
+            /* 日历侧栏与 #contentPanel 使用同一套面板样式，标签沿用全局角色。 */
+            #librarySchedule QFrame#bookingSidebar {background:rgba(255,255,255,0.82);border:1px solid #e0d7f7;border-radius:24px;}
             #librarySchedule QLabel#matrixTitle {font-size:18px;font-weight:600;color:#594178;}
             #librarySchedule QCalendarWidget {background:white;}
             #librarySchedule QCalendarWidget QToolButton {color:#7962aa;background:transparent;border:0;padding:3px;}
-            #librarySchedule QCalendarWidget QWidget#qt_calendar_navigationbar {background:#eee7f7;}
+            #librarySchedule QCalendarWidget QWidget#qt_calendar_navigationbar {background:#e8e0f8;}
             #librarySchedule QCalendarWidget QAbstractItemView {background:white;selection-background-color:#9b87ca;selection-color:white;outline:0;font-size:11px;}
         ''')
         layout = QHBoxLayout(self); layout.setContentsMargins(0,0,0,0); layout.setSpacing(16)
         sidebar = QFrame(); sidebar.setObjectName('bookingSidebar')
         left = QVBoxLayout(sidebar); left.setContentsMargins(12,16,12,16); left.setSpacing(12)
-        title = QLabel('选择日期'); title.setStyleSheet('font-weight:600;'); left.addWidget(title)
+        title = QLabel('选择日期'); title.setObjectName('sectionTitle'); left.addWidget(title)
         yield "正在构建图书馆预约 · 日历…"
         self.calendar = QCalendarWidget(); self.calendar.setGridVisible(False)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
@@ -749,21 +745,21 @@ class ReservationSchedule(QWidget):
         # 侧栏宽度有限，日历保持可收缩，避免右列被裁掉。
         self.calendar.setMinimumSize(180, 210); self.calendar.setMaximumHeight(230)
         left.addWidget(self.calendar)
-        today = QPushButton('回到今天'); today.clicked.connect(lambda: self.calendar.setSelectedDate(QDate.currentDate())); left.addWidget(today)
-        left.addWidget(QLabel('房间'))
+        today = QPushButton('回到今天'); today.setObjectName('primaryButton'); today.clicked.connect(lambda: self.calendar.setSelectedDate(QDate.currentDate())); left.addWidget(today)
+        room_label = QLabel('房间'); room_label.setObjectName('sectionTitle'); left.addWidget(room_label)
         self.room = StyledComboBox(); self.room.addItem('全部房间', None); left.addWidget(self.room)
-        duration_hint = QLabel('单击预约时长 · 拖动可选择连续时段'); duration_hint.setWordWrap(True)
+        duration_hint = QLabel('单击预约时长 · 拖动可选择连续时段'); duration_hint.setObjectName('muted'); duration_hint.setWordWrap(True)
         left.addWidget(duration_hint)
         self.duration = StyledComboBox()
         for minutes in (60,120): self.duration.addItem(f'{minutes // 60} 小时', minutes)
         left.addWidget(self.duration)
-        left.addWidget(QLabel('预约标题（学校公开显示）'))
+        title_label = QLabel('预约标题（学校公开显示）'); title_label.setObjectName('sectionTitle'); left.addWidget(title_label)
         self.booking_title = QLineEdit('Study'); left.addWidget(self.booking_title)
         self.auto_submit = QCheckBox('选中后直接提交'); self.auto_submit.setChecked(True); left.addWidget(self.auto_submit)
-        self.detail = QLabel('单击空闲格预约；沿同一列拖动选择连续时段。'); self.detail.setWordWrap(True); self.detail.setTextFormat(Qt.TextFormat.PlainText); left.addWidget(self.detail)
-        self.submit = QPushButton('预约所选时段'); self.submit.setEnabled(False); self.submit.clicked.connect(self.submit_pending); left.addWidget(self.submit)
+        self.detail = QLabel('单击空闲格预约；沿同一列拖动选择连续时段。'); self.detail.setObjectName('muted'); self.detail.setWordWrap(True); self.detail.setTextFormat(Qt.TextFormat.PlainText); left.addWidget(self.detail)
+        self.submit = QPushButton('预约所选时段'); self.submit.setObjectName('primaryButton'); self.submit.setEnabled(False); self.submit.clicked.connect(self.submit_pending); left.addWidget(self.submit)
         left.addStretch()
-        hint = QLabel('绿色：空闲  ·  紫色：已预约\n灰色：尚未加载\n房间列自动适应窗口宽度'); hint.setWordWrap(True); left.addWidget(hint)
+        hint = QLabel('绿色：空闲  ·  紫色：已预约\n灰色：尚未加载\n房间列自动适应窗口宽度'); hint.setObjectName('hint'); hint.setWordWrap(True); left.addWidget(hint)
         sidebar_scroll = QScrollArea(); sidebar_scroll.setFrameShape(QFrame.Shape.NoFrame)
         sidebar_scroll.setWidgetResizable(True); sidebar_scroll.setFixedWidth(230)
         sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -773,7 +769,7 @@ class ReservationSchedule(QWidget):
         title = QLabel('校园学习室'); title.setObjectName('matrixTitle'); row.addWidget(title); row.addStretch()
         self.mode = StyledComboBox(); self.mode.addItems(['房间日视图','单个房间周视图']); row.addWidget(self.mode)
         right.addLayout(row)
-        self.summary = QLabel(); self.summary.setWordWrap(True); right.addWidget(self.summary)
+        self.summary = QLabel(); self.summary.setObjectName('scheduleSummary'); self.summary.setWordWrap(True); right.addWidget(self.summary)
         yield "正在构建图书馆预约 · 预约表格…"
         self.canvas = ReservationMatrix(); right.addWidget(self.canvas, 1)
         self.scroll = self.canvas
@@ -866,8 +862,8 @@ class LibraryPage(QWidget):
         self.busy = False
         self.authenticated = False
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 12, 16, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(36, 28, 36, 28)
+        layout.setSpacing(14)
         header = QHBoxLayout()
         title = QLabel('图书馆预约'); title.setObjectName('pageTitle'); header.addWidget(title)
         header.addStretch()
@@ -878,7 +874,7 @@ class LibraryPage(QWidget):
         layout.addLayout(header)
         card = self.settings_panel = QFrame(); card.setObjectName('contentPanel')
         self.settings_toggle.toggled.connect(self.set_settings_expanded)
-        body = QVBoxLayout(card); body.setContentsMargins(12, 10, 12, 10); body.setSpacing(6)
+        body = QVBoxLayout(card); body.setContentsMargins(18, 16, 18, 16); body.setSpacing(10)
         school_row = QHBoxLayout()
         self.search = QLineEdit(); self.search.setPlaceholderText('搜索学校名称'); self.search.setClearButtonEnabled(True)
         self.school = StyledComboBox(); self.school.addItem(SCHOOL_NAME, 'utm')
@@ -891,7 +887,7 @@ class LibraryPage(QWidget):
         self.location.currentIndexChanged.connect(self.change_location)
         self.username = QLineEdit(); self.username.setPlaceholderText('学校账号（UTORid）')
         self.password = QLineEdit(); self.password.setPlaceholderText('学校密码'); self.password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.connect_button = QPushButton('登录'); self.disconnect_button = QPushButton('退出会话'); self.disconnect_button.setEnabled(False)
+        self.connect_button = QPushButton('登录'); self.connect_button.setObjectName('primaryButton'); self.disconnect_button = QPushButton('退出会话'); self.disconnect_button.setEnabled(False)
         row = QHBoxLayout()
         for control in (self.username, self.password, self.connect_button, self.disconnect_button): row.addWidget(control)
         body.addLayout(row)

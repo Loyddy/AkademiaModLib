@@ -6,11 +6,10 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QDate
-from PySide6.QtWidgets import (QDateEdit, QFrame, QHBoxLayout, QLabel,
-                             QLineEdit, QListWidget, QPushButton,
-                             QVBoxLayout, QWidget)
-from ui_widgets import StyledComboBox
+from PySide6.QtCore import QDate, Qt
+from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit,
+                               QListWidget, QPushButton, QVBoxLayout, QWidget)
+from ui_widgets import DateDropdown, StyledComboBox
 
 MODULE_INFO = {"name": "新增事宜", "icon": "+"}
 TASKS_FILE = Path(__file__).resolve().parents[1] / "config" / "tasks.json"
@@ -31,32 +30,45 @@ def create_widget_steps(window):
     layout.setContentsMargins(36, 28, 36, 28); layout.setSpacing(14)
     layout.addWidget(_heading("新增事宜", "创建课程之外的学习任务，并在完成后领取经验"))
     panel = QFrame(); panel.setObjectName("contentPanel"); form = QVBoxLayout(panel)
-    form.setContentsMargins(18, 18, 18, 18); form.setSpacing(12)
+    form.setContentsMargins(18, 18, 18, 18); form.setSpacing(14)
     title = QLineEdit(); title.setPlaceholderText("事宜名称，例如：完成线性代数小作业")
     type_box = StyledComboBox(); type_box.addItems(("小作业", "大作业", "考试", "课程", "其他"))
     frequency = StyledComboBox(); frequency.addItems(("一次性", "每天", "每周"))
     term = StyledComboBox(); term.addItems(("不限", "Fall", "Winter", "Summer"))
     yield "正在构建新增事宜 · 日期选项…"
-    start_date = QDateEdit(QDate.currentDate()); start_date.setCalendarPopup(True); start_date.setDisplayFormat("yyyy-MM-dd")
+    # 与课程表一致，使用公共的年/月/日下拉控件，而不是系统日历弹窗。
+    start_date = DateDropdown(QDate.currentDate())
     weekday = StyledComboBox(); weekday.addItems(WEEKDAYS); weekday.setCurrentIndex(date.today().weekday())
-    for field in (title, type_box, frequency, term, start_date, weekday): field.setFixedHeight(36)
+    for field in (title, type_box, frequency, term, start_date, weekday): field.setMinimumHeight(38)
 
     yield "正在构建新增事宜 · 表单…"
-    first = QHBoxLayout(); _field(first, "名称", title, 3); _field(first, "类型", type_box, 1)
-    second = QHBoxLayout(); _field(second, "频率", frequency, 1); date_label = _field(second, "开始日期", start_date, 1); term_label = _field(second, "学期", term, 1); weekday_label = _field(second, "星期", weekday, 1)
-    add = QPushButton("添加事宜"); add.setFixedWidth(120)
-    second.addWidget(add)
+    first = QHBoxLayout(); first.setSpacing(14)
+    first.addWidget(_field_box("名称", title), 3)
+    first.addWidget(_field_box("类型", type_box), 1)
+    second = QHBoxLayout(); second.setSpacing(14)
+    second.addWidget(_field_box("频率", frequency), 1)
+    date_box = _field_box("截止日期", start_date); second.addWidget(date_box, 2)
+    term_box = _field_box("学期", term); second.addWidget(term_box, 1)
+    weekday_box = _field_box("星期", weekday); second.addWidget(weekday_box, 1)
     form.addLayout(first); form.addLayout(second)
     hint = QLabel("一次性事宜会从创建当天每天显示到截止日期；每天/每周事宜会持续到学期结束，并按类型发放经验。")
-    hint.setObjectName("muted"); hint.setWordWrap(True); form.addWidget(hint)
+    hint.setObjectName("formHint"); hint.setWordWrap(True); form.addWidget(hint)
+    add = QPushButton("添加事宜")
+    add.setObjectName("primaryButton")
+    add.setCursor(Qt.CursorShape.PointingHandCursor)
+    add.setFixedWidth(120)
+    actions = QHBoxLayout(); actions.setSpacing(8); actions.addStretch(); actions.addWidget(add)
+    form.addLayout(actions)
     layout.addWidget(panel)
 
     yield "正在构建新增事宜 · 任务列表…"
     list_panel = QFrame(); list_panel.setObjectName("contentPanel"); list_layout = QVBoxLayout(list_panel)
-    list_layout.setContentsMargins(18, 14, 18, 14); list_layout.setSpacing(8)
+    list_layout.setContentsMargins(18, 14, 18, 14); list_layout.setSpacing(10)
     list_title = QLabel("已添加事宜"); list_title.setObjectName("sectionTitle")
     tasks_list = QListWidget()
-    delete = QPushButton("删除选中事宜"); delete.setEnabled(False); delete.setFixedWidth(140)
+    tasks_list.setAlternatingRowColors(False)
+    delete = QPushButton("删除选中事宜"); delete.setObjectName("dangerButton")
+    delete.setEnabled(False); delete.setFixedWidth(140)
     list_toolbar = QHBoxLayout(); list_toolbar.addWidget(list_title); list_toolbar.addStretch(); list_toolbar.addWidget(delete)
     list_layout.addLayout(list_toolbar); list_layout.addWidget(tasks_list, 1)
     layout.addWidget(list_panel, 1)
@@ -102,11 +114,9 @@ def create_widget_steps(window):
     def update_frequency(value):
         one_time = value == "一次性"
         weekly = value == "每周"
-        date_label.setText("截止日期" if one_time else "开始日期")
-        term_label.setVisible(not one_time)
-        term.setVisible(not one_time)
-        weekday_label.setVisible(weekly)
-        weekday.setVisible(weekly)
+        date_box.caption.setText("截止日期" if one_time else "开始日期")
+        term_box.setVisible(not one_time)
+        weekday_box.setVisible(weekly)
     frequency.currentTextChanged.connect(update_frequency)
     tasks_list.currentRowChanged.connect(lambda _: update_delete_state())
     delete.clicked.connect(delete_task)
@@ -114,9 +124,14 @@ def create_widget_steps(window):
     add.clicked.connect(add_task); render(); return page
 
 
-def _field(row, label, field, stretch=1):
+def _field_box(label, field):
+    """标签在上、控件在下的字段盒子，和其他模块的表单保持一致。"""
+    box = QWidget(); box.setObjectName("fieldBox")
+    box_layout = QVBoxLayout(box); box_layout.setContentsMargins(0, 0, 0, 0); box_layout.setSpacing(6)
     label_widget = QLabel(label); label_widget.setObjectName("formLabel")
-    row.addWidget(label_widget); row.addWidget(field, stretch); row.setSpacing(8); return label_widget
+    box_layout.addWidget(label_widget); box_layout.addWidget(field)
+    box.caption = label_widget
+    return box
 
 
 def _heading(title, subtitle):
