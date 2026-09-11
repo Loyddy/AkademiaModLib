@@ -101,8 +101,8 @@ class CurrentDayHeader(QHeaderView):
     def paintSection(self, painter, rect, logical_index):
         painter.save()
         today = logical_index == datetime.now().isoweekday()
-        painter.fillRect(rect, QColor("#f0ebfa" if today else "#faf9fd"))
-        painter.setPen(QColor("#654b96" if today else "#82798f"))
+        painter.fillRect(rect, QColor("#f1e9fb" if today else "#faf8fe"))
+        painter.setPen(QColor("#6a4f9e" if today else "#8b7bb5"))
         font = painter.font()
         font.setBold(True)
         painter.setFont(font)
@@ -110,7 +110,7 @@ class CurrentDayHeader(QHeaderView):
         if today:
             title += " · 今天"
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, title)
-        painter.setPen(QColor("#e9e3f1"))
+        painter.setPen(QColor("#e9e1f7"))
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
         painter.restore()
 
@@ -226,8 +226,8 @@ class ScheduleTimeAxis(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#faf9fd"))
-        painter.setPen(QColor("#92899f"))
+        painter.fillRect(self.rect(), QColor("#faf8fe"))
+        painter.setPen(QColor("#9a90ae"))
         font = painter.font()
         font.setPointSize(9)
         painter.setFont(font)
@@ -801,11 +801,11 @@ def create_widget_steps(window):
         #courseSchedulePage QLabel { background: transparent; }
         /* 学期栏、表单和底部操作条与 #contentPanel 共用同一套面板样式；
            按钮、输入框、标题等通用外观由全局 theme.py 统一提供。 */
-        #termPanel, #courseFormPanel, #scheduleFooter { background: rgba(255,255,255,0.82); border: 1px solid #e0d7f7; border-radius: 24px; }
+        #termPanel, #courseFormPanel, #scheduleFooter { background: #ffffff; border: 1px solid #ece4f8; border-radius: 18px; }
         #courseFormPanel #fieldBox, #courseFormPanel QLabel { background: transparent; }
-        #courseTable { background: rgba(255,255,255,0.82); border: 1px solid #e0d7f7; border-radius: 12px; gridline-color: #eee8f7; }
-        #courseTable QHeaderView::section { background: transparent; color: #7962aa; padding: 8px; border: none; font-weight: 700; }
-        #courseTable QTableCornerButton::section { background: transparent; border: none; }
+        #courseTable { background: #ffffff; border: 1px solid #ece4f8; border-radius: 14px; gridline-color: #f4f0fb; }
+        #courseTable QHeaderView::section { background: #faf8fe; color: #8b7bb5; padding: 8px; border: none; font-weight: 700; }
+        #courseTable QTableCornerButton::section { background: #faf8fe; border: none; }
     """)
     layout = QVBoxLayout(page); layout.setContentsMargins(36, 28, 36, 28); layout.setSpacing(14)
 

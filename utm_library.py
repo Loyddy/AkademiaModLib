@@ -12,7 +12,8 @@ import json
 import re
 import threading
 
-from PySide6.QtCore import Qt, Signal, QDate, QEasingCurve, QAbstractAnimation, QRectF
+from PySide6.QtCore import (Qt, Signal, QDate, QEasingCurve, QLocale,
+                            QAbstractAnimation, QRectF)
 from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
@@ -539,9 +540,9 @@ class ReservationMatrix(QTableWidget):
         self.setMinimumHeight(330)
         self.setAccessibleName('图书馆房间与时间预约矩阵')
         self.setStyleSheet('''
-            QTableWidget {background:white; border:1px solid #e0d7f7; border-radius:12px;}
-            QHeaderView::section {background:#f3eff8; color:#7962aa; border:0; padding:6px; font-weight:600;}
-            QTableCornerButton::section {background:#f3eff8; border:0;}
+            QTableWidget {background:white; border:1px solid #ece4f8; border-radius:12px;}
+            QHeaderView::section {background:#faf8fe; color:#8b7bb5; border:0; padding:6px; font-weight:600;}
+            QTableCornerButton::section {background:#faf8fe; border:0;}
         ''')
         self.hovered = (-1, -1)
         self.hover_progress = 1.0
@@ -727,11 +728,11 @@ class ReservationSchedule(QWidget):
         self.setObjectName('librarySchedule')
         self.setStyleSheet('''
             /* 日历侧栏与 #contentPanel 使用同一套面板样式，标签沿用全局角色。 */
-            #librarySchedule QFrame#bookingSidebar {background:rgba(255,255,255,0.82);border:1px solid #e0d7f7;border-radius:24px;}
-            #librarySchedule QLabel#matrixTitle {font-size:18px;font-weight:600;color:#594178;}
+            #librarySchedule QFrame#bookingSidebar {background:#ffffff;border:1px solid #ece4f8;border-radius:18px;}
+            #librarySchedule QLabel#matrixTitle {font-size:18px;font-weight:600;color:#4f4080;}
             #librarySchedule QCalendarWidget {background:white;}
             #librarySchedule QCalendarWidget QToolButton {color:#7962aa;background:transparent;border:0;padding:3px;}
-            #librarySchedule QCalendarWidget QWidget#qt_calendar_navigationbar {background:#e8e0f8;}
+            #librarySchedule QCalendarWidget QWidget#qt_calendar_navigationbar {background:#f4effc;}
             #librarySchedule QCalendarWidget QAbstractItemView {background:white;selection-background-color:#9b87ca;selection-color:white;outline:0;font-size:11px;}
         ''')
         layout = QHBoxLayout(self); layout.setContentsMargins(0,0,0,0); layout.setSpacing(16)
@@ -740,6 +741,8 @@ class ReservationSchedule(QWidget):
         title = QLabel('选择日期'); title.setObjectName('sectionTitle'); left.addWidget(title)
         yield "正在构建图书馆预约 · 日历…"
         self.calendar = QCalendarWidget(); self.calendar.setGridVisible(False)
+        # 显式指定中文区域，月份标题才会是「九月 2026」而不是「九月, 2026」。
+        self.calendar.setLocale(QLocale(QLocale.Language.Chinese, QLocale.Country.China))
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
         self.calendar.setHorizontalHeaderFormat(QCalendarWidget.HorizontalHeaderFormat.SingleLetterDayNames)
         # 侧栏宽度有限，日历保持可收缩，避免右列被裁掉。
@@ -892,7 +895,7 @@ class LibraryPage(QWidget):
         for control in (self.username, self.password, self.connect_button, self.disconnect_button): row.addWidget(control)
         body.addLayout(row)
         layout.addWidget(card)
-        self.status = QLabel('尚未登录 · 登录时将账号密码保存至本地 config，下次自动填入'); self.status.setWordWrap(True); self.status.setTextFormat(Qt.TextFormat.PlainText)
+        self.status = QLabel('尚未登录 · 登录时将账号密码保存至本地 config，下次自动填入'); self.status.setObjectName('muted'); self.status.setWordWrap(True); self.status.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self.status)
         yield "正在构建图书馆预约 · 日期与房间…"
         self.schedule = ReservationSchedule(defer_build=True)

@@ -46,8 +46,10 @@ class TodayPage(QWidget):
         self.selected_date = date.today()
         self._last_today = self.selected_date
         self.navigation = QHBoxLayout()
+        self.navigation.setSpacing(10)
         self.previous_button = QPushButton("昨天")
         self.today_button = QPushButton("回到今天")
+        self.today_button.setObjectName("primaryButton")
         self.next_button = QPushButton("明天")
         self.previous_button.clicked.connect(lambda: self._move_date(-1))
         self.today_button.clicked.connect(self._go_today)
@@ -56,7 +58,9 @@ class TodayPage(QWidget):
         self.navigation.addWidget(self.today_button)
         self.navigation.addWidget(self.next_button)
         self.navigation.addStretch()
+        # 清空完成状态会同时扣除经验，属于破坏性操作，使用危险按钮样式。
         self.reset_button = QPushButton("重置所有完成状态")
+        self.reset_button.setObjectName("dangerButton")
         self.reset_button.clicked.connect(self.reset_all)
         self.navigation.addWidget(self.reset_button)
         self.floating_button = QPushButton("开启悬浮窗")
@@ -168,8 +172,11 @@ class TodayPage(QWidget):
         text_layout.addWidget(heading); text_layout.addWidget(details)
         row.addLayout(text_layout, 1)
         completed = _task_is_completed(item, self.selected_date, completions) if item_kind == "task" else key in completions
+        # 未完成时用主操作按钮（紫色实心），已完成用绿色状态按钮，避免把
+        # “完成”这个正面动作画成警示红色。
         done = QPushButton("已完成" if completed else "完成")
-        done.setObjectName("completedButton" if completed else "pendingButton")
+        done.setObjectName("completedButton" if completed else "primaryButton")
+        done.setCursor(Qt.CursorShape.PointingHandCursor)
         done.setEnabled(not completed)
         done.setFixedSize(108, 38)
         done.clicked.connect(lambda: self._complete(key, xp, done))

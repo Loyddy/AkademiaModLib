@@ -78,7 +78,16 @@ def create_widget(window):
     panel_layout.addSpacing(22)
     panel_layout.addLayout(action_row)
     panel_layout.addStretch(3)
-    layout.addWidget(panel, 1)
+    panel.setFixedHeight(392)
+    panel.setMaximumWidth(640)
+    # 卡片按内容定尺寸并居中，空白留给工作区背景而不是一块大白板。
+    card_row = QHBoxLayout()
+    card_row.addStretch(1)
+    card_row.addWidget(panel, 8)
+    card_row.addStretch(1)
+    layout.addSpacing(24)
+    layout.addLayout(card_row)
+    layout.addStretch(1)
 
     timer = QTimer(page)
     seconds = [1500]

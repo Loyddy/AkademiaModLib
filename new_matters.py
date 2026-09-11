@@ -67,15 +67,24 @@ def create_widget_steps(window):
     list_title = QLabel("已添加事宜"); list_title.setObjectName("sectionTitle")
     tasks_list = QListWidget()
     tasks_list.setAlternatingRowColors(False)
+    empty_hint = QLabel("还没有事宜，填写上面的表单即可添加")
+    empty_hint.setObjectName("muted")
+    empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    empty_hint.setWordWrap(True)
     delete = QPushButton("删除选中事宜"); delete.setObjectName("dangerButton")
     delete.setEnabled(False); delete.setFixedWidth(140)
     list_toolbar = QHBoxLayout(); list_toolbar.addWidget(list_title); list_toolbar.addStretch(); list_toolbar.addWidget(delete)
-    list_layout.addLayout(list_toolbar); list_layout.addWidget(tasks_list, 1)
+    list_layout.addLayout(list_toolbar)
+    list_layout.addWidget(empty_hint, 1)
+    list_layout.addWidget(tasks_list, 1)
     layout.addWidget(list_panel, 1)
     tasks = _load_tasks()
 
     def render():
         tasks_list.clear()
+        # 空列表用一个提示代替空白列表框，避免整页留出大白洞。
+        empty_hint.setVisible(not tasks)
+        tasks_list.setVisible(bool(tasks))
         for task in tasks:
             text = f"{task.get('title', '未命名')}  ·  {task.get('type', '其他')}  ·  {task.get('frequency', '一次性')}  ·  {task.get('date_start', '')}"
             if task.get("frequency") == "每周":
