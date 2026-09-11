@@ -563,6 +563,13 @@ class DragPreviewEffect(QGraphicsEffect):
 class ScheduleDragController(QObject):
     """Keep edits provisional until release; animate the snapped landing card."""
 
+    # 日期列之间只有 1px 分隔线：逐像素拖动跨列时光标会正好落进这条缝。
+    # 判定按精确边界算的话，这一步会被当成“不在网格内”，预览消失一帧再飞回来，
+    # 看起来就是跨日拖动时闪一下，所以命中判定留一点容差。
+    COLUMN_GAP_TOLERANCE = 4
+    # 贴着表格边缘拖动时允许光标越界这么多像素，避免预览突然消失。
+    EDGE_MARGIN = 14
+
     def __init__(self, table, commit, parent=None):
         super().__init__(parent)
         self.table = table
@@ -627,6 +634,22 @@ class ScheduleDragController(QObject):
                         "end" if point.y() > rect.bottom() - band else "move")
                 return course, mode
         return None
+
+    def _day_at(self, local):
+        """返回光标所在的日期列；落在列间分隔线里时取最近的一列。
+
+        精确边界判断会让光标正好压在 1px 分隔线上时判定为“没有目标列”，
+        跨日拖动就会闪一下，所以这里留 COLUMN_GAP_TOLERANCE 的容差。
+        """
+        nearest = None
+        for day in self.days:
+            pos = day.mapTo(self.table.viewport(), QPoint())
+            if pos.x() <= local.x() < pos.x() + day.width():
+                return day
+            distance = min(abs(local.x() - pos.x()), abs(local.x() - (pos.x() + day.width())))
+            if nearest is None or distance < nearest[0]:
+                nearest = (distance, day)
+        return nearest[1] if nearest is not None and nearest[0] <= self.COLUMN_GAP_TOLERANCE else None
 
     def eventFilter(self, watched, event):
         kind = event.type()
@@ -714,11 +737,13 @@ class ScheduleDragController(QObject):
             direction = movement.x() if abs(movement.x()) >= abs(movement.y()) else movement.y()
             self.set_tilt(math.copysign(min(6.0, 2.0 + abs(direction) * 0.12), direction))
             self.tilt_idle.start()
-        local = self.table.viewport().mapFromGlobal(point)
-        target = next((day for day in self.days
-                       if day.mapTo(self.table.viewport(), QPoint()).x() <= local.x()
-                       < day.mapTo(self.table.viewport(), QPoint()).x() + day.width()), None)
-        drag['valid'] = target is not None and self.table.viewport().rect().contains(local)
+        viewport = self.table.viewport()
+        local = viewport.mapFromGlobal(point)
+        target = self._day_at(local)
+        # 光标短暂越过表格边缘时不要立刻判定为无效：预览会消失一帧再出现。
+        reach = QRect(viewport.rect()).adjusted(-self.EDGE_MARGIN, -self.EDGE_MARGIN,
+                                                self.EDGE_MARGIN, self.EDGE_MARGIN)
+        drag['valid'] = target is not None and reach.contains(local)
         if not drag['valid']:
             self.preview.hide()
             self.hint.hide()
@@ -733,12 +758,15 @@ class ScheduleDragController(QObject):
         start, end = _drag_times(drag['start'], drag['end'], delta, drag['mode'],
                                  target.start_minute, target.end_minute)
         drag['target'] = (WEEKDAYS[self.days.index(target)], start, end)
-        pos = target.mapTo(self.table.viewport(), QPoint())
+        pos = target.mapTo(viewport, QPoint())
         rect = QRect(pos.x() + 4, round(pos.y() + target.top_padding + (start - target.start_minute) * target.row_height / 30 + 4),
                      max(10, target.width() - 8), max(8, round((end - start) * target.row_height / 30 - 8)))
-        if not self.preview.isVisible():
+        # 只在拖动开始时把预览对齐到原卡片；之后一律沿当前位置继续动画，
+        # 否则任何一次短暂隐藏都会让预览“闪回”到出发的那一列。
+        if not drag.get('positioned'):
             source_rect = source.visible_boxes()[id(drag['course'])]
-            self.preview.setGeometry(source_rect.translated(source.mapTo(self.table.viewport(), QPoint())))
+            self.preview.setGeometry(source_rect.translated(source.mapTo(viewport, QPoint())))
+            drag['positioned'] = True
         if self.animation.endValue() != rect or not self.preview.isVisible():
             self.animation.stop()
             self.animation.setStartValue(self.preview.geometry())
@@ -763,7 +791,10 @@ class ScheduleDragController(QObject):
             return
         viewport = self.table.viewport()
         point = viewport.mapFromGlobal(self.drag['global'])
-        if not viewport.rect().contains(point):
+        # 贴着边缘拖动时允许光标略微越界，滚动不会因为一像素的抖动中断。
+        reach = QRect(viewport.rect()).adjusted(-self.EDGE_MARGIN, -self.EDGE_MARGIN,
+                                                self.EDGE_MARGIN, self.EDGE_MARGIN)
+        if not reach.contains(point):
             return
         delta = -6 if point.y() < 32 else 6 if point.y() > viewport.height() - 32 else 0
         if delta:
