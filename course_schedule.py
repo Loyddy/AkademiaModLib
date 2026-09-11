@@ -1,6 +1,7 @@
 """课程表：支持 ICS 导入、手动添加和周视图持久化。"""
 
 import json
+from utils import write_json
 import math
 import re
 import time
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import ( QFileDialog, QGridLayout, QHBoxLayout,
     QVBoxLayout, QWidget, QScrollArea)
 from ui_widgets import StyledComboBox, DateDropdown, TimeDropdown
 
-from animation_utils import PropertyAnimation as QPropertyAnimation, VariantAnimation as QVariantAnimation, SequentialAnimationGroup as QSequentialAnimationGroup
+from utils import PropertyAnimation as QPropertyAnimation, VariantAnimation as QVariantAnimation
 
 MODULE_INFO = {"name": "课程表", "icon": "◷"}
 DATA_FILE = Path(__file__).resolve().parents[1] / "config" / "courses.json"
@@ -98,11 +99,20 @@ class CurrentDayHeader(QHeaderView):
     """Keep today's original colors and dim the other weekday columns."""
 
     def paintSection(self, painter, rect, logical_index):
-        super().paintSection(painter, rect, logical_index)
-        if 1 <= logical_index <= 7 and logical_index != datetime.now().isoweekday():
-            painter.save()
-            painter.fillRect(rect, QColor(121, 98, 170, 28))
-            painter.restore()
+        painter.save()
+        today = logical_index == datetime.now().isoweekday()
+        painter.fillRect(rect, QColor("#f0ebfa" if today else "#faf9fd"))
+        painter.setPen(QColor("#654b96" if today else "#82798f"))
+        font = painter.font()
+        font.setBold(True)
+        painter.setFont(font)
+        title = "时间" if logical_index == 0 else WEEKDAYS[logical_index - 1]
+        if today:
+            title += " · 今天"
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, title)
+        painter.setPen(QColor("#e9e3f1"))
+        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+        painter.restore()
 
 
 def _resize_band_height(rect):
@@ -203,6 +213,31 @@ class CourseDetailsBubble(QFrame):
         painter.drawPath(path.united(arrow))
 
 
+class ScheduleTimeAxis(QWidget):
+    """时间标注以网格边界为中心，而非放在半小时时段中央。"""
+
+    def __init__(self, start_minute, end_minute, row_height=36, parent=None):
+        super().__init__(parent)
+        self.setAutoFillBackground(True)
+        self.start_minute = start_minute
+        self.end_minute = end_minute
+        self.row_height = row_height
+        self.setFixedHeight((end_minute - start_minute) * row_height // 30 + row_height)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#faf9fd"))
+        painter.setPen(QColor("#92899f"))
+        font = painter.font()
+        font.setPointSize(9)
+        painter.setFont(font)
+        label_height = painter.fontMetrics().height()
+        for minute in range(self.start_minute, self.end_minute + 1, 30):
+            y = self.row_height / 2 + (minute - self.start_minute) * self.row_height / 30
+            rect = QRectF(0, y - label_height / 2, self.width(), label_height)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, _format_clock(minute))
+
+
 class DayScheduleWidget(QWidget):
     """绘制一天的连续时间轴，支持长课与重叠课程。"""
     courseSelected = Signal(object)
@@ -216,7 +251,9 @@ class DayScheduleWidget(QWidget):
         self.end_minute = end_minute
         self.row_height = row_height
         self.endpoint_height = endpoint_height
+        self.top_padding = endpoint_height / 2
         self.selected_course = None
+        self._overlay_course = None
         self.setFixedHeight((end_minute - start_minute) * row_height // 30 + endpoint_height)
         self._segments = []
         self.setMouseTracking(True)
@@ -337,7 +374,7 @@ class DayScheduleWidget(QWidget):
             lane_width = max(0, (available - gap * (count - 1)) / count)
             for course, start, end, lane in assigned:
                 x = inset + lane * (lane_width + gap)
-                y = (start - self.start_minute) * self.row_height / 30
+                y = self.top_padding + (start - self.start_minute) * self.row_height / 30
                 height = (end - start) * self.row_height / 30
                 vertical_inset = min(4, max(0, (height - 1) / 2))
                 rect = QRect(round(x), round(y + vertical_inset),
@@ -354,13 +391,16 @@ class DayScheduleWidget(QWidget):
         painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         now = datetime.now()
         is_today = self.weekday_index == now.weekday()
-        painter.setPen(QPen(QColor("#e0d7f7"), 1))
-        for row in range(1, (self.end_minute - self.start_minute) // 30 + 1):
-            y = row * self.row_height
+        painter.fillRect(self.rect(), QColor("#faf8ff" if is_today else "#ffffff"))
+        for row in range((self.end_minute - self.start_minute) // 30 + 1):
+            y = round(self.top_padding + row * self.row_height)
+            painter.setPen(QPen(QColor("#e9e3f1" if row % 2 == 0 else "#f3eff8"), 1))
             painter.drawLine(0, y, self.width(), y)
         text_rects = {}
         grouped = {}
         for course, rect in self._segments:
+            if course is self._overlay_course:
+                continue
             grouped.setdefault(id(course), (course, []))[1].append(self._paint_rect(course, rect))
         # Animate only the painted card; retain stable hit boxes for dragging.
         for course, rects in grouped.values():
@@ -378,8 +418,9 @@ class DayScheduleWidget(QWidget):
                 ) for rect in rects]
         for course, rects in grouped.values():
             selected = course is self.selected_course
-            painter.setBrush(QColor("#7962aa" if selected else "#e8e0f8"))
-            painter.setPen(Qt.PenStyle.NoPen)
+            fill, accent = "#ede7fa", "#7960ac"
+            painter.setBrush(QColor(accent if selected else fill))
+            painter.setPen(QPen(QColor(accent if selected else fill).darker(108), 1))
             rects.sort(key=lambda rect: rect.top())
             if len(rects) == 1:
                 rect = rects[0]
@@ -413,6 +454,7 @@ class DayScheduleWidget(QWidget):
             if text_rect.isEmpty():
                 continue
             font = type(base_font)(base_font)
+            font.setBold(True)
             text = _fit_course_text(_course_text(course), font, text_rect.width(), text_rect.height())
             painter.save()
             painter.setClipRect(text_rect)
@@ -432,7 +474,7 @@ class DayScheduleWidget(QWidget):
                 painter.drawRoundedRect(strip, radius, radius)
         minutes = now.hour * 60 + now.minute + (now.second + now.microsecond / 1_000_000) / 60
         if is_today and self.start_minute <= minutes <= self.end_minute:
-            y = (minutes - self.start_minute) * self.row_height / 30
+            y = self.top_padding + (minutes - self.start_minute) * self.row_height / 30
             # Draw last so the current-time marker remains visible over courses.
             pulse = (math.sin(time.monotonic() * math.tau / 3) + 1) / 2
             painter.setPen(QPen(QColor(199, 86, 126, round(28 + 30 * pulse)),
@@ -446,8 +488,6 @@ class DayScheduleWidget(QWidget):
             painter.drawEllipse(QPointF(5, y), 5 + 2 * pulse, 5 + 2 * pulse)
             painter.setBrush(QColor("#c7567e"))
             painter.drawEllipse(QPointF(5, y), 3.5, 3.5)
-        if self.weekday_index is not None and not is_today:
-            painter.fillRect(self.rect(), QColor(121, 98, 170, 24))
         painter.end()
 
     def mousePressEvent(self, event):
@@ -470,7 +510,6 @@ class DayScheduleWidget(QWidget):
 
     def mouseDoubleClickEvent(self, event):
         event.accept()
-
 
 
 class DragPreviewEffect(QGraphicsEffect):
@@ -540,6 +579,8 @@ class ScheduleDragController(QObject):
         self.animation.setDuration(280)
         self.animation.setEasingCurve(QEasingCurve.Type.OutQuart)
         self.animation.valueChanged.connect(lambda _: self.position_hint())
+        self.landing_day = None
+        self.animation.finished.connect(self.finish_landing)
         self.timer = QTimer(self)
         self.timer.setInterval(16)
         self.timer.timeout.connect(self.auto_scroll)
@@ -548,6 +589,13 @@ class ScheduleDragController(QObject):
     def attach(self, days):
         self.cancel()
         self.days = days
+
+    def finish_landing(self):
+        if self.landing_day is not None:
+            self.landing_day._overlay_course = None
+            self.landing_day.update()
+            self.landing_day = None
+            self.preview.hide()
 
     def set_tilt(self, angle):
         self.tilt_animation.stop()
@@ -573,6 +621,9 @@ class ScheduleDragController(QObject):
         if self.drag and kind == QEvent.Type.ApplicationDeactivate:
             self.cancel()
         if self.drag and kind == QEvent.Type.MouseMove:
+            if not event.buttons() & Qt.MouseButton.LeftButton:
+                self.cancel()
+                return False
             self.drag['global'] = event.globalPosition().toPoint()
             self.update_drag()
             return True
@@ -591,13 +642,22 @@ class ScheduleDragController(QObject):
                     if any(course is drag['course'] for course, _ in day._segments):
                         position = day.mapTo(self.table.viewport(), QPoint())
                         old_boxes[id(drag['course'])] = preview_rect.translated(-position)
+                        self.landing_day = day
+                        day._overlay_course = drag['course']
+                        target_rect = day.visible_boxes()[id(drag['course'])].translated(position)
+                        self.preview.setGeometry(preview_rect)
+                        self.preview.show()
+                        self.preview.raise_()
+                        self.animation.setStartValue(preview_rect)
+                        self.animation.setEndValue(target_rect)
+                        self.animation.start()
                     day.animate_landing(old_boxes)
             elif not drag['active'] and drag['mode'] == 'move':
                 released = drag['source'].mapFromGlobal(event.globalPosition().toPoint())
                 hit = self.hit(drag['source'], released)
                 if hit and hit[0] is drag['course']:
                     drag['source'].courseClicked.emit(drag['course'])
-            return True
+            return False
         if watched not in self.days:
             return False
         if kind == QEvent.Type.MouseMove:
@@ -607,6 +667,7 @@ class ScheduleDragController(QObject):
         elif kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
             hit = self.hit(watched, event.position().toPoint())
             if hit:
+                self.cancel()
                 for day in self.days:
                     day.stop_landing()
                 course, mode = hit
@@ -658,11 +719,12 @@ class ScheduleDragController(QObject):
                                  target.start_minute, target.end_minute)
         drag['target'] = (WEEKDAYS[self.days.index(target)], start, end)
         pos = target.mapTo(self.table.viewport(), QPoint())
-        rect = QRect(pos.x() + 4, round(pos.y() + (start - target.start_minute) * target.row_height / 30 + 4),
+        rect = QRect(pos.x() + 4, round(pos.y() + target.top_padding + (start - target.start_minute) * target.row_height / 30 + 4),
                      max(10, target.width() - 8), max(8, round((end - start) * target.row_height / 30 - 8)))
         if not self.preview.isVisible():
-            self.preview.setGeometry(rect)
-        elif self.animation.endValue() != rect:
+            source_rect = source.visible_boxes()[id(drag['course'])]
+            self.preview.setGeometry(source_rect.translated(source.mapTo(self.table.viewport(), QPoint())))
+        if self.animation.endValue() != rect or not self.preview.isVisible():
             self.animation.stop()
             self.animation.setStartValue(self.preview.geometry())
             self.animation.setEndValue(rect)
@@ -695,6 +757,7 @@ class ScheduleDragController(QObject):
             self.update_drag()
 
     def cancel(self):
+        self.finish_landing()
         for day in self.days:
             day.stop_landing()
         if self.drag:
@@ -732,10 +795,22 @@ def create_widget(window):
 
 def create_widget_steps(window):
     """Build GUI controls in short batches without blocking loading animation."""
-    page = QWidget(); page.setObjectName("courseSchedulePage")
+    page = QWidget(getattr(window, "_module_build_parent", None)); page.setObjectName("courseSchedulePage")
     page.setStyleSheet("""
-        #courseSchedulePage { background: transparent; }
-        #termPanel, #courseFormPanel { background: rgba(255,255,255,0.82); border: 1px solid #e0d7f7; border-radius: 18px; }
+        #courseSchedulePage { background: #f6f4fa; }
+        #courseSchedulePage QLabel { background: transparent; }
+        #courseSchedulePage #pageTitle { color: #352944; font-size: 26px; font-weight: 700; }
+        #courseSchedulePage #muted { color: #92869f; font-size: 12px; }
+        #courseSchedulePage QPushButton { background: #ffffff; color: #70617f; border: 1px solid #e5ddec; border-radius: 10px; padding: 9px 16px; font-weight: 600; }
+        #courseSchedulePage QPushButton:hover { background: #f0eaf8; border-color: #c6b5df; }
+        #courseSchedulePage QPushButton:disabled { color: #b4aabb; background: #f7f5fa; border-color: #eee8f2; }
+        #courseSchedulePage #toggleCourseForm, #courseSchedulePage #addCourse { background: #7962aa; color: white; border-color: #7962aa; }
+        #courseSchedulePage #toggleCourseForm:hover, #courseSchedulePage #addCourse:hover { background: #695296; }
+        #courseSchedulePage #deleteCourse:enabled { color: #a85c6d; background: #fff5f7; border-color: #efd9df; }
+        #courseSchedulePage #courseDetailsActions QPushButton { padding: 6px 12px; font-size: 12px; border-radius: 8px; }
+        #courseSchedulePage #courseDetailsDelete:enabled { color: #a85c6d; background: #fff5f7; border-color: #efd9df; }
+        #scheduleFooter { background: #ffffff; border: 1px solid #e8e1ef; border-radius: 12px; }
+        #termPanel, #courseFormPanel { background: #ffffff; border: 1px solid #e8e1ef; border-radius: 16px; }
         #courseFormPanel { background: #ffffff; }
         #courseFormPanel #fieldBox, #courseFormPanel QLabel { background: transparent; }
         #courseFormPanel QLineEdit, #courseFormPanel QDateEdit,
@@ -743,9 +818,9 @@ def create_widget_steps(window):
         #toolbarLabel, #formLabel { color: #7962aa; font-size: 11px; font-weight: 600; }
         #formHint { color: #7a708c; font-size: 11px; }
         #scheduleSummary { color: #7a708c; font-size: 12px; }
-        #selectionSummary { color: #7962aa; font-size: 12px; }
+        #selectionSummary { color: #8b7d9b; font-size: 11px; }
         #toggleCourseForm:checked, #addCourse { background: #7962aa; color: white; border-color: #7962aa; }
-        #courseTable { background: rgba(255,255,255,0.82); border: 1px solid #e0d7f7; border-radius: 16px; gridline-color: #eee8f7; }
+        #courseTable { background: #ffffff; border: 1px solid #e5ddec; border-radius: 12px; gridline-color: #eee8f5; }
         #courseTable QHeaderView::section { background: transparent; color: #7962aa; padding: 8px; border: none; font-weight: 700; }
         #courseTable QTableCornerButton::section { background: transparent; border: none; }
         #courseTable QScrollBar::handle:vertical, #courseTable QScrollBar::handle:horizontal { background: #c8b9e5; border-radius: 4px; }
@@ -756,22 +831,25 @@ def create_widget_steps(window):
     course_type = QLineEdit(); course_type.setPlaceholderText("例如：LEC、TUT、PRA")
     course_name = QLineEdit(); course_name.setPlaceholderText("课程全名（可选）")
     date_start = DateDropdown(QDate.currentDate())
-    yield
+    yield "正在构建课程表 · 日期选项…"
     date_end = DateDropdown(QDate.currentDate())
-    yield
+    yield "正在构建课程表 · 结束日期…"
     weekday = StyledComboBox(); weekday.addItems(WEEKDAYS)
     start_time = TimeDropdown(QTime(9, 0))
+    yield "正在构建课程表 · 开始时间…"
     end_time = TimeDropdown(QTime(10, 0))
-    yield
+    yield "正在构建课程表 · 时间选项…"
     location = QLineEdit(); location.setPlaceholderText("教室（可选）")
     add = QPushButton("添加课程"); import_button = QPushButton("导入 .ics")
     delete = QPushButton("删除选中课程"); delete.setEnabled(False)
+    delete.setObjectName("deleteCourse")
     toggle_form = QPushButton("＋ 新增课程")
     toggle_form.setObjectName("toggleCourseForm")
     toggle_form.setCheckable(True)
     add.setObjectName("addCourse")
     summary = QLabel(); summary.setObjectName("scheduleSummary")
-    selection = QLabel("单击课程展开详情；拖动课程移动，拖动上下条调整时长（30 分钟吸附）")
+    summary.setWordWrap(True)
+    selection = QLabel("单击课程展开详情与操作按钮；拖动课程移动，拖动上下条调整时长（30 分钟吸附）")
     selection.setObjectName("selectionSummary")
     selection.setWordWrap(True)
     details = CourseDetailsBubble(page)
@@ -807,11 +885,26 @@ def create_widget_steps(window):
     details_scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
     details_scroll.setWidget(details_body)
     details_layout.addWidget(details_scroll)
+    details_actions = QWidget()
+    details_actions.setObjectName("courseDetailsActions")
+    details_actions_layout = QHBoxLayout(details_actions)
+    details_actions_layout.setContentsMargins(0, 0, 0, 0)
+    details_actions_layout.setSpacing(8)
+    details_copy = QPushButton("复制课程代码")
+    details_copy.setCursor(Qt.CursorShape.PointingHandCursor)
+    details_delete = QPushButton("删除课程")
+    details_delete.setObjectName("courseDetailsDelete")
+    details_delete.setCursor(Qt.CursorShape.PointingHandCursor)
+    details_actions_layout.addWidget(details_copy)
+    details_actions_layout.addStretch(1)
+    details_actions_layout.addWidget(details_delete)
+    details_layout.addWidget(details_actions)
+    details_course = None
     details.hide()
     term = StyledComboBox(); term.addItems(("Fall", "Winter", "Summer"))
     for field in (code, course_type, course_name, date_start, date_end, weekday, start_time, end_time, location, term):
         field.setMinimumHeight(38)
-    yield
+    yield "正在构建课程表 · 课程详情…"
 
     def field_box(label, field):
         box = QWidget(); box.setObjectName("fieldBox")
@@ -827,7 +920,7 @@ def create_widget_steps(window):
     form.addWidget(field_box("名称", course_name), 1, 0, 1, 2)
     form.addWidget(field_box("起始日期 *", date_start), 2, 0)
     form.addWidget(field_box("结束日期 *", date_end), 2, 1)
-    yield
+    yield "正在构建课程表 · 课程表单…"
     form.addWidget(field_box("星期 *", weekday), 3, 0)
     form.addWidget(field_box("教室", location), 3, 1)
     form.addWidget(field_box("开始 *", start_time), 4, 0)
@@ -839,7 +932,7 @@ def create_widget_steps(window):
     form_actions = QHBoxLayout(); form_actions.setSpacing(8)
     form_actions.addStretch(); form_actions.addWidget(add)
     form.addLayout(form_actions, 6, 0, 1, 2)
-    yield
+    yield "正在构建课程表 · 课程表单…"
     table = RoundedTableWidget(0, 8)
     table.setHorizontalHeader(CurrentDayHeader(Qt.Orientation.Horizontal, table))
     table.setHorizontalHeaderLabels(["时间"] + list(WEEKDAYS))
@@ -858,26 +951,26 @@ def create_widget_steps(window):
     table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers); table.verticalHeader().setVisible(False)
     table.setItemDelegate(CourseCellDelegate(table))
     table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-    table.horizontalHeader().setFixedHeight(48)
+    table.horizontalHeader().setFixedHeight(52)
     table.setObjectName("courseTable")
     table.setMinimumHeight(360); table.setAlternatingRowColors(False); courses = _load_courses(); grid_start = 8 * 60
     saved_term = _load_selected_term()
     term.setCurrentText(saved_term if saved_term in ("Fall", "Winter", "Summer")
                         else _term_from_month(QDate.currentDate().month()))
     selected_course = None; cell_widgets = []
-    yield
+    yield "正在构建课程表 · 时间网格…"
 
     def refresh():
-        nonlocal grid_start, selected_course, cell_widgets
+        nonlocal grid_start, selected_course, cell_widgets, details_course
         drag_controller.cancel()
         scroll_value = table.verticalScrollBar().value()
         if table._scroll_animation and table._scroll_animation.state() != QAbstractAnimation.State.Stopped:
             table._scroll_animation.stop()
-        selected_course = None; cell_widgets = []
+        selected_course = None; cell_widgets = []; details_course = None
         details.hide()
         visible_courses = [course for course in courses if _course_term(course) == term.currentText()]
         summary.setText(f"{term.currentText()}  ·  {len(visible_courses)} 门课程  ·  08:00–22:00")
-        selection.setText("单击课程展开详情；拖动课程移动，拖动上下条调整时长（30 分钟吸附）")
+        selection.setText("单击课程展开详情与操作按钮；拖动课程移动，拖动上下条调整时长（30 分钟吸附）")
         timed = [_course_start_end(course) for course in visible_courses]
         timed = [(start, end, course) for start, end, course in timed if start is not None]
         grid_start = 8 * 60
@@ -886,7 +979,7 @@ def create_widget_steps(window):
                  if end > grid_start and start < grid_end]
         slots = list(range(grid_start, grid_end + 1, 30))
         for row in range(table.rowCount()):
-            for column in range(1, table.columnCount()):
+            for column in range(table.columnCount()):
                 widget = table.cellWidget(row, column)
                 if widget:
                     widget.deleteLater()
@@ -894,6 +987,8 @@ def create_widget_steps(window):
         for row, minutes in enumerate(slots):
             table.setItem(row, 0, QTableWidgetItem(_format_clock(minutes)))
             table.setRowHeight(row, 36)
+        table.setSpan(0, 0, len(slots), 1)
+        table.setCellWidget(0, 0, ScheduleTimeAxis(grid_start, grid_end))
         for day_index, day in enumerate(WEEKDAYS, start=1):
             day_courses = [item[2] for item in timed if _course_day(item[2]) == day]
             cell_widget = DayScheduleWidget(day_courses, grid_start, grid_end, endpoint_height=36, weekday_index=day_index - 1)
@@ -908,23 +1003,19 @@ def create_widget_steps(window):
         delete.setEnabled(selected_course is not None)
 
     def update_details(course):
-        details_title.setText(f"教室：{course.get('location') or '待定'}")
+        details_title.setText("课程详情")
+        details_copy.setEnabled(bool((course.get("code") or course.get("title") or "").strip()))
         rows = [
-            f"课程名称：{course.get('title') or '未填写'}",
-            f"课程代码：{_course_text(course)}",
-            f"课程类型：{course.get('course_type') or '未填写'}",
-            f"上课星期：{_course_day(course)}",
-            f"上课时间：{_time_slot(course)}",
-            f"学期：{_course_term(course)}",
-            f"开始日期：{course.get('date_start') or '未填写'}",
-            f"结束日期：{course.get('date_end') or '未填写'}",
+            f"教室：{course.get('location') or '待定'}",
+            f"类型：{course.get('course_type') or '未填写'}",
+            f"时间：{_time_slot(course) or '未填写'}",
+            f"全称：{course.get('arrangement') or course.get('title') or '未填写'}",
         ]
-        if course.get('arrangement'):
-            rows.append(f"安排：{course['arrangement']}")
         details_body.setText("\n\n".join(rows))
         details_scroll.setFixedHeight(min(380, max(90, details_body.heightForWidth(280) + 12)))
 
     def show_details(course):
+        nonlocal details_course
         for day in cell_widgets:
             day._layout_boxes()
             for item, rect in day._segments:
@@ -932,6 +1023,7 @@ def create_widget_steps(window):
                     visible = QRect(day.mapToGlobal(rect.topLeft()), rect.size()).intersected(
                         QRect(table.viewport().mapToGlobal(QPoint()), table.viewport().size()))
                     if not visible.isEmpty():
+                        details_course = course
                         update_details(course)
                         details.show_at(visible)
                     return
@@ -987,7 +1079,7 @@ def create_widget_steps(window):
             elif widget.weekday_index == now.weekday():
                 # Repaint just the moving glow, leaving the rest of the timetable idle.
                 minute = now.hour * 60 + now.minute + (now.second + now.microsecond / 1_000_000) / 60
-                y = (minute - widget.start_minute) * widget.row_height / 30
+                y = widget.top_padding + (minute - widget.start_minute) * widget.row_height / 30
                 previous_y = getattr(widget, '_clock_y', y)
                 if abs(previous_y - y) > 20:
                     widget.update(QRect(0, int(previous_y) - 10, widget.width(), 22))
@@ -1036,12 +1128,38 @@ def create_widget_steps(window):
         courses = imported; _save_courses(courses); refresh()
         QMessageBox.information(page, "读取完成", f"已读取 {len(imported)} 门课程，之前的课程表内容已覆盖。")
 
-    def delete_course():
+    def remove_course(course):
         nonlocal selected_course
+        label = (course.get("code") or course.get("title") or "课程").strip()
+        if course in courses:
+            courses.remove(course)
+        selected_course = None
+        _save_courses(courses); refresh()
+        selection.setText(f"已删除：{label}")
+
+    def delete_course():
         if selected_course is None:
             QMessageBox.information(page, "删除课程", "请先点击要删除的课程。"); return
-        courses.remove(selected_course); selected_course = None
-        _save_courses(courses); refresh()
+        remove_course(selected_course)
+
+    def _copy_course_code(course):
+        text = (course.get("code") or course.get("title") or "").strip()
+        if not text:
+            return
+        QApplication.clipboard().setText(text)
+        selection.setText(f"已复制课程代码：{text}")
+
+    def copy_details_code():
+        if details_course is not None:
+            _copy_course_code(details_course)
+
+    def delete_details_course():
+        if details_course is not None:
+            details.hide()
+            remove_course(details_course)
+
+    details_copy.clicked.connect(copy_details_code)
+    details_delete.clicked.connect(delete_details_course)
 
     add.clicked.connect(add_course); import_button.clicked.connect(import_ics); delete.clicked.connect(delete_course)
     def change_term(value):
@@ -1058,7 +1176,7 @@ def create_widget_steps(window):
     toolbar.addLayout(term_bar); toolbar.addWidget(summary)
     form_panel = QFrame(); form_panel.setObjectName("courseFormPanel"); form_panel.setLayout(form)
     form_panel.setVisible(False)
-    yield
+    yield "正在构建课程表 · 课程数据…"
     def toggle_course_form(expanded):
         form_panel.setVisible(expanded)
         toggle_form.setText("收起表单" if expanded else "＋ 新增课程")
@@ -1067,12 +1185,14 @@ def create_widget_steps(window):
     toggle_form.toggled.connect(toggle_course_form)
     layout.addWidget(_heading("课程表", "按星期和时间查看你的课程安排"))
     layout.addWidget(term_panel); layout.addWidget(form_panel)
-    yield
+    yield "正在构建课程表 · 学期工具栏…"
     layout.addWidget(table, 1)
-    selection_bar = QHBoxLayout(); selection_bar.setSpacing(12)
+    footer = QFrame(); footer.setObjectName("scheduleFooter")
+    selection_bar = QHBoxLayout(footer); selection_bar.setSpacing(12)
+    selection_bar.setContentsMargins(16, 10, 12, 10)
     selection_bar.addWidget(selection, 1); selection_bar.addWidget(delete)
-    layout.addLayout(selection_bar)
-    yield
+    layout.addWidget(footer)
+    yield "正在构建课程表 · 课程布局…"
     refresh()
     return page
 
@@ -1081,7 +1201,7 @@ def _load_courses():
     try:
         data = json.loads(DATA_FILE.read_text(encoding="utf-8"))
         return [course for course in data if isinstance(course, dict)] if isinstance(data, list) else []
-    except (OSError, json.JSONDecodeError): return []
+    except (OSError, UnicodeError, json.JSONDecodeError): return []
 
 
 def _save_courses(courses):
@@ -1099,13 +1219,13 @@ def _load_selected_term():
     try:
         settings = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
         return settings.get("term", "") if isinstance(settings, dict) else ""
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return ""
 
 
 def _save_selected_term(term):
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_FILE.write_text(json.dumps({"term": term}, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(SETTINGS_FILE, {"term": term})
 
 
 def _parse_ics(path):
@@ -1254,11 +1374,19 @@ def _course_text(course):
 
 
 def _fit_course_text(text, font, width, height):
-    """在窄课程框内缩小并按字符换行，避免重叠课程文字被裁切。"""
+    """在窄课程框内先缩小字号，放不下再按字符换行，避免文字被裁切。"""
     if width <= 0 or height <= 0:
         return text
     base_size = font.pointSize() if font.pointSize() > 0 else 10
-    for size in range(base_size, 5, -1):
+    floor = 6
+    # 课程代码是一个整体，优先缩到单行，避免出现「MAT232 / H5」这类断行。
+    for size in range(base_size, max(floor, 7) - 1, -1):
+        font.setPointSize(size)
+        metrics = QFontMetrics(font)
+        if metrics.horizontalAdvance(text) <= width and metrics.lineSpacing() <= height:
+            return text
+    lines = [text]
+    for size in range(base_size, floor - 1, -1):
         font.setPointSize(size)
         metrics = QFontMetrics(font)
         lines = []

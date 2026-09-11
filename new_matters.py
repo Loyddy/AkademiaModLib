@@ -1,11 +1,12 @@
 """新增事宜：创建一次性或周期性的学习任务。"""
 
 import json
+from utils import write_json
 import uuid
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QDate
 from PySide6.QtWidgets import (QDateEdit, QFrame, QHBoxLayout, QLabel,
                              QLineEdit, QListWidget, QPushButton,
                              QVBoxLayout, QWidget)
@@ -17,7 +18,16 @@ WEEKDAYS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日"
 
 
 def create_widget(window):
-    page = QWidget(); layout = QVBoxLayout(page)
+    steps = create_widget_steps(window)
+    while True:
+        try:
+            next(steps)
+        except StopIteration as result:
+            return result.value
+
+
+def create_widget_steps(window):
+    page = QWidget(getattr(window, "_module_build_parent", None)); layout = QVBoxLayout(page)
     layout.setContentsMargins(36, 28, 36, 28); layout.setSpacing(14)
     layout.addWidget(_heading("新增事宜", "创建课程之外的学习任务，并在完成后领取经验"))
     panel = QFrame(); panel.setObjectName("contentPanel"); form = QVBoxLayout(panel)
@@ -26,10 +36,12 @@ def create_widget(window):
     type_box = StyledComboBox(); type_box.addItems(("小作业", "大作业", "考试", "课程", "其他"))
     frequency = StyledComboBox(); frequency.addItems(("一次性", "每天", "每周"))
     term = StyledComboBox(); term.addItems(("不限", "Fall", "Winter", "Summer"))
+    yield "正在构建新增事宜 · 日期选项…"
     start_date = QDateEdit(QDate.currentDate()); start_date.setCalendarPopup(True); start_date.setDisplayFormat("yyyy-MM-dd")
     weekday = StyledComboBox(); weekday.addItems(WEEKDAYS); weekday.setCurrentIndex(date.today().weekday())
     for field in (title, type_box, frequency, term, start_date, weekday): field.setFixedHeight(36)
 
+    yield "正在构建新增事宜 · 表单…"
     first = QHBoxLayout(); _field(first, "名称", title, 3); _field(first, "类型", type_box, 1)
     second = QHBoxLayout(); _field(second, "频率", frequency, 1); date_label = _field(second, "开始日期", start_date, 1); term_label = _field(second, "学期", term, 1); weekday_label = _field(second, "星期", weekday, 1)
     add = QPushButton("添加事宜"); add.setFixedWidth(120)
@@ -39,6 +51,7 @@ def create_widget(window):
     hint.setObjectName("muted"); hint.setWordWrap(True); form.addWidget(hint)
     layout.addWidget(panel)
 
+    yield "正在构建新增事宜 · 任务列表…"
     list_panel = QFrame(); list_panel.setObjectName("contentPanel"); list_layout = QVBoxLayout(list_panel)
     list_layout.setContentsMargins(18, 14, 18, 14); list_layout.setSpacing(8)
     list_title = QLabel("已添加事宜"); list_title.setObjectName("sectionTitle")
@@ -53,7 +66,12 @@ def create_widget(window):
         tasks_list.clear()
         for task in tasks:
             text = f"{task.get('title', '未命名')}  ·  {task.get('type', '其他')}  ·  {task.get('frequency', '一次性')}  ·  {task.get('date_start', '')}"
-            if task.get("frequency") == "每周": text += f" · {WEEKDAYS[int(task.get('weekday', 0))]}"
+            if task.get("frequency") == "每周":
+                try:
+                    day = int(task.get('weekday', 0))
+                except (TypeError, ValueError, OverflowError):
+                    day = -1
+                text += f" · {WEEKDAYS[day] if 0 <= day <= 6 else '星期待定'}"
             tasks_list.addItem(text)
 
     def add_task():
@@ -110,10 +128,10 @@ def _heading(title, subtitle):
 def _load_tasks():
     try:
         data = json.loads(TASKS_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (OSError, json.JSONDecodeError): return []
+        return [task for task in data if isinstance(task, dict)] if isinstance(data, list) else []
+    except (OSError, UnicodeError, json.JSONDecodeError): return []
 
 
 def _save_tasks(tasks):
     TASKS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TASKS_FILE.write_text(json.dumps(tasks, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(TASKS_FILE, tasks)

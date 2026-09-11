@@ -1,11 +1,13 @@
 """今日事宜：课程与自定义事宜的完成清单。"""
 
 import json
+from utils import write_json
 from datetime import date, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QEvent, QTimer, Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from ui_widgets import ElidedLabel
 
 MODULE_INFO = {"name": "今日事宜", "icon": "★"}
 COURSES_FILE = Path(__file__).resolve().parents[1] / "config" / "courses.json"
@@ -16,9 +18,22 @@ XP_BY_TYPE = {"小作业": 10, "大作业": 40, "考试": 20, "课程": 20, "其
 
 
 class TodayPage(QWidget):
-    def __init__(self, window):
-        super().__init__()
+    closed = Signal()
+    completion_changed = Signal()
+
+    def __init__(self, window, *, floating=False):
+        super().__init__(None if floating else getattr(window, "_module_build_parent", None))
         self.window = window
+        self.floating = floating
+        self.floating_window = None
+        if floating:
+            self.setWindowTitle("今日事宜 · 悬浮窗")
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+            self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
+            self.resize(460, 560)
+            self.setMinimumSize(340, 260)
+        elif isinstance(window, QWidget):
+            window.installEventFilter(self)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(36, 28, 36, 28)
         self.layout.setSpacing(14)
@@ -29,6 +44,7 @@ class TodayPage(QWidget):
         self.summary = QLabel()
         self.summary.setObjectName("pageSummary")
         self.selected_date = date.today()
+        self._last_today = self.selected_date
         self.navigation = QHBoxLayout()
         self.previous_button = QPushButton("昨天")
         self.today_button = QPushButton("回到今天")
@@ -43,6 +59,23 @@ class TodayPage(QWidget):
         self.reset_button = QPushButton("重置所有完成状态")
         self.reset_button.clicked.connect(self.reset_all)
         self.navigation.addWidget(self.reset_button)
+        self.floating_button = QPushButton("开启悬浮窗")
+        self.floating_button.setCheckable(True)
+        self.floating_button.toggled.connect(self._toggle_floating)
+        self.navigation.addWidget(self.floating_button)
+        if floating:
+            for button in (self.previous_button, self.today_button, self.next_button,
+                           self.reset_button, self.floating_button):
+                button.hide()
+            self.pin_button = QPushButton("置顶")
+            self.pin_button.setCheckable(True)
+            self.pin_button.setChecked(True)
+            self.pin_button.toggled.connect(self._set_pinned)
+            self.navigation.addWidget(self.pin_button)
+            self.close_button = QPushButton("关闭悬浮窗")
+            self.close_button.clicked.connect(self.close)
+            self.navigation.addWidget(self.close_button)
+            self.layout.setContentsMargins(16, 16, 16, 16)
         self.content = QVBoxLayout()
         self.content.setContentsMargins(0, 0, 8, 0)
         self.content.setSpacing(10)
@@ -71,8 +104,11 @@ class TodayPage(QWidget):
         super().showEvent(event)
 
     def refresh(self):
-        selected_date = self.selected_date
         today = date.today()
+        if self.floating or self.selected_date == self._last_today:
+            self.selected_date = today
+        self._last_today = today
+        selected_date = self.selected_date
         label = "今天" if selected_date == today else (
             "昨天" if selected_date == today - timedelta(days=1) else
             "明天" if selected_date == today + timedelta(days=1) else ""
@@ -85,7 +121,7 @@ class TodayPage(QWidget):
         items.sort(key=lambda item: item[0].get("time", item[0].get("start", "99:99")))
         self.summary.setText(f"{label or '该日'}共有 {len(items)} 件事宜")
         if not items:
-            empty = QLabel("今天没有安排事宜。")
+            empty = QLabel(f"{label or '该日'}没有安排事宜。")
             empty.setObjectName("emptyState")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.content.addWidget(empty)
@@ -115,12 +151,20 @@ class TodayPage(QWidget):
                 due_label = "今天到期" if due_days == 0 else f"还剩 {due_days} 天"
                 detail += f"   ·   这件事快到期了 · {due_label}"
         card = QFrame(); card.setObjectName("courseSummaryCard")
-        card.setFixedHeight(78)
+        if self.floating:
+            card.setMinimumHeight(90)
+        else:
+            card.setFixedHeight(78)
         row = QHBoxLayout(card); row.setContentsMargins(16, 12, 12, 12); row.setSpacing(12)
         text_layout = QVBoxLayout(); text_layout.setSpacing(3)
-        heading = QLabel(title); heading.setObjectName("matterTitle")
-        details = QLabel(detail); details.setObjectName("muted")
-        heading.setWordWrap(False); details.setWordWrap(False)
+        if self.floating:
+            heading = QLabel(title); details = QLabel(detail)
+            heading.setWordWrap(True); details.setWordWrap(True)
+        else:
+            # 卡片高度固定，长标题改为省略号，避免把页面撑出横向滚动条。
+            heading = ElidedLabel(title); details = ElidedLabel(detail)
+        heading.setObjectName("matterTitle")
+        details.setObjectName("muted")
         text_layout.addWidget(heading); text_layout.addWidget(details)
         row.addLayout(text_layout, 1)
         completed = _task_is_completed(item, self.selected_date, completions) if item_kind == "task" else key in completions
@@ -144,6 +188,7 @@ class TodayPage(QWidget):
         button.style().unpolish(button)
         button.style().polish(button)
         button.setEnabled(False)
+        self.completion_changed.emit()
 
     def reset_all(self):
         completions = _load_completions()
@@ -161,6 +206,40 @@ class TodayPage(QWidget):
         _save_completions([])
         self.window.remove_experience(total_xp)
         self.refresh()
+        self.completion_changed.emit()
+
+    def _toggle_floating(self, enabled):
+        if enabled:
+            if self.floating_window is None:
+                panel = TodayPage(self.window, floating=True)
+                self.floating_window = panel
+                self.destroyed.connect(panel.deleteLater)
+                panel.closed.connect(lambda: self.floating_button.setChecked(False))
+                panel.completion_changed.connect(self.refresh)
+                self.completion_changed.connect(panel.refresh)
+            self.floating_window.refresh_timer.start()
+            self.floating_window.refresh()
+            self.floating_window.show()
+            self.floating_window.raise_()
+        elif self.floating_window is not None:
+            self.floating_window.hide()
+            self.floating_window.refresh_timer.stop()
+        self.floating_button.setText("关闭悬浮窗" if enabled else "开启悬浮窗")
+
+    def _set_pinned(self, pinned):
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, pinned)
+        self.show()
+
+    def closeEvent(self, event):
+        if self.floating:
+            self.refresh_timer.stop()
+            self.closed.emit()
+        super().closeEvent(event)
+
+    def eventFilter(self, watched, event):
+        if watched is self.window and event.type() == QEvent.Type.Close:
+            self.floating_button.setChecked(False)
+        return super().eventFilter(watched, event)
 
     def _move_date(self, days):
         self.selected_date += timedelta(days=days); self.refresh()
@@ -172,7 +251,12 @@ class TodayPage(QWidget):
         while self.content.count():
             item = self.content.takeAt(0)
             widget = item.widget()
-            if widget: widget.deleteLater()
+            if widget:
+                # takeAt 只解除布局关系，控件仍以 content_host 为父级并保持可见，
+                # 在延迟删除真正执行前会一直绘制，刷新后出现重影卡片。
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
 
 
 def create_widget(window):
@@ -196,8 +280,8 @@ def _today_courses(today):
 
 def _today_tasks(today):
     result = []
-    completions = _load_completions()
-    for task in _load_json(TASKS_FILE, []):
+    data = _load_json(TASKS_FILE, [])
+    for task in data if isinstance(data, list) else []:
         if not isinstance(task, dict) or not _task_matches(task, today): continue
         result.append(task)
     return result
@@ -212,10 +296,13 @@ def _task_matches(task, selected):
         try:
             deadline = date.fromisoformat(start)
             created = date.fromisoformat(task.get("created_date", date.today().isoformat()))
-        except ValueError:
+        except (TypeError, ValueError):
             return False
         return created <= selected <= deadline
-    if start and selected < date.fromisoformat(start): return False
+    try:
+        if start and selected < date.fromisoformat(start): return False
+    except (TypeError, ValueError):
+        return False
     term = task.get("term", "不限")
     if term not in ("不限", _term_from_month(selected.month)):
         return False
@@ -297,7 +384,7 @@ def _task_due_days(task, selected):
     if frequency == "一次性":
         try:
             due = date.fromisoformat(task.get("date_start", ""))
-        except ValueError:
+        except (TypeError, ValueError):
             return None
     elif frequency == "每周":
         due = _task_due_date(task, selected)
@@ -309,7 +396,12 @@ def _task_due_days(task, selected):
 
 
 def _task_due_date(task, selected):
-    due_day = int(task.get("weekday", selected.weekday()))
+    try:
+        due_day = int(task.get("weekday", selected.weekday()))
+    except (TypeError, ValueError, OverflowError):
+        due_day = selected.weekday()
+    if not 0 <= due_day <= 6:
+        due_day = selected.weekday()
     return selected + timedelta(days=(due_day - selected.weekday()) % 7)
 
 
@@ -333,12 +425,12 @@ def _completion_xp(completion):
 
 
 def _save_completions(data):
-    COMPLETIONS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(COMPLETIONS_FILE, data)
 
 
 def _load_json(path, fallback):
     try: return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError): return fallback
+    except (OSError, UnicodeError, json.JSONDecodeError): return fallback
 
 
 def _term_from_month(month):

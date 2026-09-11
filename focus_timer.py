@@ -1,14 +1,17 @@
+import math
+import time
+
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QTimer, Qt
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QProgressBar, QPushButton, QSlider, QVBoxLayout, QWidget
 
-from animation_utils import PropertyAnimation as QPropertyAnimation, VariantAnimation as QVariantAnimation, SequentialAnimationGroup as QSequentialAnimationGroup
+from utils import PropertyAnimation as QPropertyAnimation
 
 MODULE_INFO = {"name": "专注计时", "icon": "◉"}
 
 
 def create_widget(window):
-    page = QWidget()
+    page = QWidget(getattr(window, "_module_build_parent", None))
     layout = QVBoxLayout(page)
     layout.setContentsMargins(36, 28, 36, 28)
     layout.setSpacing(14)
@@ -53,6 +56,8 @@ def create_widget(window):
     seconds = [1500]
     total_seconds = [1500]
     started = [False]
+    remaining = [1500.0]
+    deadline = [0.0]
     progress_animation = QPropertyAnimation(progress, b"value", page)
     progress_animation.setDuration(700)
     progress_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -83,10 +88,12 @@ def create_widget(window):
             progress_animation.setEndValue(elapsed)
             progress_animation.start()
         else:
+            progress_animation.stop()
             progress.setValue(elapsed)
 
     def tick():
-        seconds[0] = max(0, seconds[0] - 1)
+        remaining[0] = max(0.0, deadline[0] - time.monotonic())
+        seconds[0] = math.ceil(remaining[0])
         update_display()
         if seconds[0] == 0:
             timer.stop()
@@ -97,6 +104,8 @@ def create_widget(window):
             seconds[0] = selected_minutes() * 60
             total_seconds[0] = seconds[0]
             started[0] = True
+            remaining[0] = float(seconds[0])
+        deadline[0] = time.monotonic() + remaining[0]
         progress.setRange(0, total_seconds[0] * 1000)
         update_display(animated=False)
         timer.start(1000)
@@ -104,9 +113,10 @@ def create_widget(window):
 
     def toggle():
         if timer.isActive():
+            tick()
             timer.stop()
             progress_animation.stop()
-            start.setText("继续专注")
+            start.setText("继续专注" if seconds[0] else "开始专注")
         else:
             begin()
 
@@ -115,6 +125,7 @@ def create_widget(window):
         progress_animation.stop()
         seconds[0] = selected_minutes() * 60
         total_seconds[0] = seconds[0]
+        remaining[0] = float(seconds[0])
         started[0] = False
         progress.setRange(0, total_seconds[0] * 1000)
         update_display(animated=False)
