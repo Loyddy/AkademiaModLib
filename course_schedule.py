@@ -1236,14 +1236,8 @@ def _load_courses():
 
 
 def _save_courses(courses):
-    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temporary = DATA_FILE.with_suffix(".json.tmp")
-    try:
-        temporary.write_text(json.dumps(courses, ensure_ascii=False, indent=2), encoding="utf-8")
-        temporary.replace(DATA_FILE)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
+    """全项目共用一个写入路径：utils.write_json 会 fsync 后原子替换。"""
+    write_json(DATA_FILE, courses)
 
 
 def _load_selected_term():

@@ -117,7 +117,8 @@ def create_widget_steps(window):
     clip_to_rounded_frame(table, 11)
     clip_to_rounded_frame(header, 11, corners="tl,tr")
     empty = QLabel("还没有成绩，填上面的表单就能记下第一门课")
-    empty.setObjectName("muted"); empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    empty.setObjectName("emptyState"); empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    empty.setWordWrap(True)
     body.addWidget(empty, 1); body.addWidget(table, 1)
     layout.addWidget(list_panel, 1)
 
@@ -226,12 +227,13 @@ def grade_point(score):
 
 
 def _score_for(point):
-    """反查至少拿到该绩点所需的分数下限。"""
-    best = 0
-    for floor, value in GPA_BANDS:
-        if value >= point and floor > best:
-            best = floor
-    return best
+    """反查至少拿到该绩点所需的分数下限。
+
+    GPA_BANDS 从高到低排列，能达到目标绩点的最低档就是所需的最低分数：
+    3.7 的档位是 85 分，取最高档会算成 90 分。
+    """
+    floors = [floor for floor, value in GPA_BANDS if value >= point]
+    return min(floors) if floors else 0
 
 
 def _spin(value, low, high, decimals, step):

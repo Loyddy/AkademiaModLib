@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QAbstractItemView, QStyledItemDelegate,
     QCalendarWidget, QFrame, QCheckBox, QScrollArea, QLineEdit,
 )
-from ui_widgets import StyledComboBox, clip_to_rounded_frame
+from ui_widgets import BusyIndicator, StyledComboBox, clip_to_rounded_frame
 from utils import PropertyAnimation, VariantAnimation
 from utils import write_json
 
@@ -904,7 +904,14 @@ class LibraryPage(QWidget):
         body.addLayout(row)
         layout.addWidget(card)
         self.status = QLabel('尚未登录 · 登录时将账号密码保存至本地 config，下次自动填入'); self.status.setWordWrap(True); self.status.setTextFormat(Qt.TextFormat.PlainText)
-        layout.addWidget(self.status)
+        # 登录、读预约表、提交预约都在等网络：同一行放转圈弧线，
+        # 说明「正在做什么」，不要只留一句静态文字让人干等。
+        self.indicator = BusyIndicator()
+        status_row = QHBoxLayout()
+        status_row.setSpacing(10)
+        status_row.addWidget(self.indicator, 0, Qt.AlignmentFlag.AlignTop)
+        status_row.addWidget(self.status, 1)
+        layout.addLayout(status_row)
         yield "正在构建图书馆预约 · 日期与房间…"
         self.schedule = ReservationSchedule(defer_build=True)
         yield from self.schedule.build_steps()
@@ -929,14 +936,17 @@ class LibraryPage(QWidget):
             self.school.addItem(SCHOOL_NAME, 'utm')
         self.connect_button.setEnabled(not self.busy and self.session is None and self.school.count() > 0)
 
-    def run(self, action):
+    def run(self, action, message):
         if self.busy: return
         self.busy = True
         self.location.setEnabled(False)
         self.schedule.setEnabled(False)
         generation = self.generation
         self.connect_button.setEnabled(False)
-        self.status.setText('正在连接学校服务…')
+        # 等待期间的文字放在指示器上，状态标签留给结果，
+        # 这样同一行只会出现一句话。
+        self.status.setText('')
+        self.indicator.start(message)
         def work():
             try: result, error = action(), ''
             except ValueError as exc: result, error = None, str(exc)
@@ -958,10 +968,11 @@ class LibraryPage(QWidget):
         self.password.clear()
         self.search.setEnabled(False); self.school.setEnabled(False); self.username.setEnabled(False); self.password.setEnabled(False)
         self.disconnect_button.setEnabled(True)
-        self.run(lambda: session.login(username, password))
+        self.run(lambda: session.login(username, password), '正在登录学校账号…')
 
     def finish(self, generation, document, error):
         if generation != self.generation: return
+        self.idle()
         self.busy = False
         self.sync_locations()
         self.schedule.setEnabled(True)
@@ -992,6 +1003,11 @@ class LibraryPage(QWidget):
         if not records:
             self.status.setText('未识别到预约时段，请重新选择日期或重新登录。')
 
+    def idle(self):
+        """Stop the wait and clear its wording; the result goes to status."""
+        self.indicator.stop()
+        self.indicator.set_text('')
+
     def sync_locations(self):
         self.location.blockSignals(True)
         self.location.clear()
@@ -1009,13 +1025,13 @@ class LibraryPage(QWidget):
         session = self.session
         day = self.schedule.calendar.selectedDate().toPython()
         self.schedule.set_records([])
-        self.run(lambda: session.select_location(url, day))
+        self.run(lambda: session.select_location(url, day), '正在切换场地…')
 
     def load_date(self, day):
         if self.busy or not self.authenticated or self.session is None:
             return
         session = self.session
-        self.run(lambda: session.load_day(day))
+        self.run(lambda: session.load_day(day), '正在读取预约表…')
 
     def book_selection(self, slot):
         if self.busy:
@@ -1027,9 +1043,10 @@ class LibraryPage(QWidget):
         if not title:
             self.schedule.detail.setText('请输入预约标题。'); return
         session = self.session
-        self.run(lambda: session.book_slot(slot, title))
+        self.run(lambda: session.book_slot(slot, title), '正在提交预约…')
 
     def disconnect_session(self):
+        self.idle()
         self.settings_toggle.setChecked(True)
         self.generation += 1; self.busy = False; self.session = None
         self.authenticated = False

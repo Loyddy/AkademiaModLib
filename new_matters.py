@@ -8,7 +8,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QPushButton, QVBoxLayout, QWidget)
+                               QListWidget, QMessageBox, QPushButton,
+                               QVBoxLayout, QWidget)
 from ui_widgets import DateDropdown, StyledComboBox, clip_to_rounded_frame
 
 MODULE_INFO = {"name": "新增事宜", "icon": "+"}
@@ -70,7 +71,7 @@ def create_widget_steps(window):
     # 列表行会盖住外框圆角，把视口裁成同样的圆角。
     clip_to_rounded_frame(tasks_list, 11)
     empty_hint = QLabel("还没有事宜，填写上面的表单即可添加")
-    empty_hint.setObjectName("muted")
+    empty_hint.setObjectName("emptyState")
     empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
     empty_hint.setWordWrap(True)
     delete = QPushButton("删除选中事宜"); delete.setObjectName("dangerButton")
@@ -101,6 +102,13 @@ def create_widget_steps(window):
         name = title.text().strip()
         if not name:
             title.setFocus(); return
+        deadline = start_date.date()
+        if frequency.currentText() == "一次性" and deadline < QDate.currentDate():
+            # 一次性事宜按「创建当天 → 截止日期」显示，过去的日期永远不会出现。
+            QMessageBox.information(
+                page, "日期已过",
+                "一次性事宜会从今天显示到截止日期，请选择一个今天或之后的日期。")
+            start_date.setFocus(); return
         tasks.append({
             "id": uuid.uuid4().hex,
             "title": name,

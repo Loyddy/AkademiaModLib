@@ -127,7 +127,8 @@ def create_widget_steps(window):
     clip_to_rounded_frame(table, 11)
     clip_to_rounded_frame(header, 11, corners="tl,tr")
     empty = QLabel("还没有投递记录，填上面的表单就能记下第一条")
-    empty.setObjectName("muted"); empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    empty.setObjectName("emptyState"); empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    empty.setWordWrap(True)
     body.addWidget(empty, 1); body.addWidget(table, 1)
 
     yield "正在构建实习投递 · 状态跟进…"
@@ -135,6 +136,7 @@ def create_widget_steps(window):
     follow_label = QLabel("更新选中记录的状态"); follow_label.setObjectName("formLabel")
     status_editor = StyledComboBox(); status_editor.addItems(STATUSES)
     status_editor.setMinimumHeight(38)
+    status_editor.setAccessibleName("状态编辑器")
     apply_status = QPushButton("更新状态"); apply_status.setObjectName("primaryButton")
     apply_status.setCursor(Qt.CursorShape.PointingHandCursor)
     apply_status.setEnabled(False); apply_status.setFixedWidth(120)
@@ -188,6 +190,15 @@ def create_widget_steps(window):
     def _sync_buttons():
         selected = 0 <= table.currentRow() < len(shown)
         delete.setEnabled(selected); apply_status.setEnabled(selected)
+        record = selected_record()
+        if record is not None:
+            # 下拉框跟着选中行走：否则“更新状态”会把残留的默认值（已投递）
+            # 写回一条用户只是想看看的记录里。
+            index = status_editor.findText(record["status"])
+            if index >= 0 and index != status_editor.currentIndex():
+                status_editor.blockSignals(True)
+                status_editor.setCurrentIndex(index)
+                status_editor.blockSignals(False)
 
     def selected_record():
         row_index = table.currentRow()

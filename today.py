@@ -189,12 +189,14 @@ class TodayPage(QWidget):
             return
         completions.append(key)
         _save_completions(completions)
-        self.window.add_experience(xp)
+        # 先改可见状态，再上报经验：宿主钩子缺失或抛错时，卡片仍然会变成
+        # 「已完成」，不会出现「文件写好了、按钮还是完成、再点也没反应」。
         button.setText("已完成")
         button.setObjectName("completedButton")
         button.style().unpolish(button)
         button.style().polish(button)
         button.setEnabled(False)
+        _report_experience(self.window, xp)
         self.completion_changed.emit()
 
     def reset_all(self):
@@ -211,8 +213,8 @@ class TodayPage(QWidget):
             return
         total_xp = sum(_completion_xp(item) for item in completions)
         _save_completions([])
-        self.window.remove_experience(total_xp)
         self.refresh()
+        _report_experience(self.window, -total_xp)
         self.completion_changed.emit()
 
     def _toggle_floating(self, enabled):
@@ -332,45 +334,6 @@ def _task_completion_key(task, selected):
     return f"task:{task_id}:day:{selected.isoformat()}"
 
 
-def _task_completed_in_cycle(task, selected, completions):
-    task_id = task.get("id", task.get("title", "未命名事宜"))
-    frequency = task.get("frequency", "一次性")
-    if frequency == "一次性":
-        prefix = f"task:{task_id}:once:"
-    elif frequency == "每周":
-        prefix = f"task:{task_id}:week:{_task_due_date(task, selected).isoformat()}"
-    else:
-        prefix = f"task:{task_id}:day:{selected.isoformat()}"
-    return any(str(item).startswith(prefix) for item in completions)
-
-
-def _task_should_show(task, selected, completions):
-    """Keep a completed item visible on its completion date only."""
-    exact_key = _task_completion_key(task, selected)
-    if exact_key in completions:
-        return True
-    task_id = task.get("id", task.get("title", "未命名事宜"))
-    frequency = task.get("frequency", "一次性")
-    if frequency == "一次性":
-        prefix = f"task:{task_id}:once:"
-    elif frequency == "每周":
-        prefix = f"task:{task_id}:week:{_task_due_date(task, selected).isoformat()}"
-    else:
-        return True
-    completion_dates = []
-    for item in completions:
-        value = str(item)
-        if not value.startswith(prefix):
-            continue
-        try:
-            completion_dates.append(date.fromisoformat(value.rsplit(":", 1)[-1]))
-        except ValueError:
-            continue
-    if not completion_dates:
-        return True
-    return selected < min(completion_dates)
-
-
 def _task_is_completed(task, selected, completions):
     """Weekly completion applies to every date in the same week."""
     exact_key = _task_completion_key(task, selected)
@@ -410,6 +373,18 @@ def _task_due_date(task, selected):
     if not 0 <= due_day <= 6:
         due_day = selected.weekday()
     return selected + timedelta(days=(due_day - selected.weekday()) % 7)
+
+
+def _report_experience(window, amount):
+    """Report finished work to the host, if this shell grew the hook.
+
+    The 今日事宜 page must keep working on a shell that has no experience
+    ledger: resolving the hook through getattr keeps a missing one inert
+    instead of raising inside the click handler.
+    """
+    action = getattr(window, "add_experience" if amount >= 0 else "remove_experience", None)
+    if callable(action):
+        action(abs(int(amount)))
 
 
 def _load_completions():
